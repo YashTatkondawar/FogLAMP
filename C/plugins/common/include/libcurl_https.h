@@ -51,11 +51,14 @@ private:
 
 private:
 	CURL               *m_sender;
-	std::string	        m_host_port;
+	std::string         m_host_port;
 	unsigned int        m_retry_sleep_time;       // Seconds between each retry
 	unsigned int        m_max_retry;              // Max number of retries in the communication
 	std::string         m_authMethod;             // Authentication method to be used
 	std::string         m_authBasicCredentials;   // Credentials is the base64 encoding of id and password joined by a single colon (:)
+    	struct curl_slist  *m_chunk = NULL;
+	unsigned int        m_request_timeout;
+	unsigned int        m_connect_timeout;
 };
 
 #endif
