@@ -21,6 +21,7 @@
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
 #include "json_utils.h"
+#include "libcurl_https.h"
 
 #include "crypto.hpp"
 
@@ -196,7 +197,7 @@ const char *PLUGIN_DEFAULT_CONFIG_INFO = QUOTE(
  */
 typedef struct
 {
-	SimpleHttps	*sender;	        // HTTPS connection
+	HttpSender	*sender;	        // HTTPS connection
 	OMF 		*omf;		        // OMF data protocol
 	bool		compression;	        // whether to compress readings' data
 	string		hostAndPort;	        // hostname:port for SimpleHttps
@@ -333,7 +334,6 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* configData)
 	{
 		Logger::getLogger()->debug("PI Web API end-point - kerberos authentication");
 		connInfo->PIWebAPIAuthMethod = "k";
-		// #Todo : to be implemented
 	}
 	else
 	{
@@ -496,11 +496,23 @@ uint32_t plugin_send(const PLUGIN_HANDLE handle,
 	 * connect_timeout and request_timeout.
 	 * Default is no timeout at all
 	 */
-	connInfo->sender = new SimpleHttps(connInfo->hostAndPort,
-					   connInfo->timeout,
-					   connInfo->timeout,
-					   connInfo->retrySleepTime,
-					   connInfo->maxRetry);
+	if (connInfo->PIWebAPIAuthMethod.compare("k") == 0)
+	{
+		connInfo->sender = new LibcurlHttps(connInfo->hostAndPort,
+						    connInfo->timeout,
+						    connInfo->timeout,
+						    connInfo->retrySleepTime,
+						    connInfo->maxRetry);
+	}
+	else
+	{
+		connInfo->sender = new SimpleHttps(connInfo->hostAndPort,
+						   connInfo->timeout,
+						   connInfo->timeout,
+						   connInfo->retrySleepTime,
+						   connInfo->maxRetry);
+	}
+
 
 	connInfo->sender->setAuthMethod          (connInfo->PIWebAPIAuthMethod);
 	connInfo->sender->setAuthBasicCredentials(connInfo->PIWebAPICredentials);
