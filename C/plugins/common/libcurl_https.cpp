@@ -22,7 +22,7 @@
 #include "libcurl_https.h"
 
 //# FIXME_I
-#define VERBOSE_LOG	1
+#define VERBOSE_LO 0
 
 using namespace std;
 
@@ -64,13 +64,13 @@ struct WriteThis {
 };
 
 // Callback for libcurl
-static size_t read_callback(void *dest, size_t size, size_t nmemb, void *userp)
+static size_t cb_read_data(void *dest, size_t size, size_t nmemb, void *userp)
 {
 	struct WriteThis *wt = (struct WriteThis *)userp;
 	size_t buffer_size = size*nmemb;
 
 	// # FIXME_I
-	Logger::getLogger()->debug("DBG - read_callback - size :%ld: nmemb :%ld: message :%s:", size, nmemb, wt->readptr);
+	Logger::getLogger()->debug("DBG - cb_read_data - size :%ld: nmemb :%ld: message :%s:", size, nmemb, wt->readptr);
 
 
 	if(wt->sizeleft) {
@@ -92,7 +92,7 @@ static size_t read_callback(void *dest, size_t size, size_t nmemb, void *userp)
 string g_payload;
 
 // Callback for libcurl
-static int seek_cb(void *userp, curl_off_t offset, int origin)
+static int cb_seek(void *userp, curl_off_t offset, int origin)
 {
 	struct WriteThis *wt = (struct WriteThis *)userp;
 
@@ -100,11 +100,16 @@ static int seek_cb(void *userp, curl_off_t offset, int origin)
 	wt->sizeleft =g_payload.length();
 
 	// # FIXME_I
-	Logger::getLogger()->debug("DBG - seek_cb - offset :%ld: origin :%ld: message :%s:", offset, origin, wt->readptr);
+	Logger::getLogger()->debug("DBG - cb_seek - offset :%ld: origin :%ld: message :%s:", offset, origin, wt->readptr);
 
 	return CURL_SEEKFUNC_OK;
 }
 
+// Avoid libcurl debug messages
+size_t cb_write_data(void *buffer, size_t size, size_t nmemb, void *userp)
+{
+	return size * nmemb;
+}
 
 /**
  * Send data, it retries the operation m_max_retry times
@@ -180,8 +185,11 @@ int LibcurlHttps::sendRequest(const string& method,
 	}
 
 #if VERBOSE_LOG
-	/* get verbose debug output please */
 	curl_easy_setopt(m_sender, CURLOPT_VERBOSE, 1L);
+#else
+	curl_easy_setopt(m_sender, CURLOPT_VERBOSE, 0L);
+	// to avoid all debug messages
+	curl_easy_setopt(m_sender, CURLOPT_WRITEFUNCTION, cb_write_data);
 #endif
 
 	// Handle HTTP headers
@@ -233,13 +241,13 @@ int LibcurlHttps::sendRequest(const string& method,
 		curl_easy_setopt(m_sender, CURLOPT_POSTFIELDSIZE, (long) wt.sizeleft);
 
 		// Configures callbacks if the method requires a payload handling
-		curl_easy_setopt(m_sender, CURLOPT_READFUNCTION, read_callback);
+		curl_easy_setopt(m_sender, CURLOPT_READFUNCTION, cb_read_data);
 
 		/* pointer to pass to our read function */
 		curl_easy_setopt(m_sender, CURLOPT_READDATA, &wt);
 
 		//# FIXME_I
-		curl_easy_setopt(m_sender, CURLOPT_SEEKFUNCTION, seek_cb);
+		curl_easy_setopt(m_sender, CURLOPT_SEEKFUNCTION, cb_seek);
 		curl_easy_setopt(m_sender, CURLOPT_SEEKDATA, &wt);
 	}
 
