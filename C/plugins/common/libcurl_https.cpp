@@ -69,6 +69,10 @@ static size_t read_callback(void *dest, size_t size, size_t nmemb, void *userp)
 	struct WriteThis *wt = (struct WriteThis *)userp;
 	size_t buffer_size = size*nmemb;
 
+	// # FIXME_I
+	Logger::getLogger()->debug("DBG - read_callback - size :%ld: nmemb :%ld: message :%s:", size, nmemb, wt->readptr);
+
+
 	if(wt->sizeleft) {
 		/* copy as much as possible from the source to the destination */
 		size_t copy_this_much = wt->sizeleft;
@@ -90,12 +94,13 @@ string g_payload;
 // Callback for libcurl
 static int seek_cb(void *userp, curl_off_t offset, int origin)
 {
-	// # FIXME_I
-
 	struct WriteThis *wt = (struct WriteThis *)userp;
 
 	wt->readptr = g_payload.c_str();
 	wt->sizeleft =g_payload.length();
+
+	// # FIXME_I
+	Logger::getLogger()->debug("DBG - seek_cb - offset :%ld: origin :%ld: message :%s:", offset, origin, wt->readptr);
 
 	return CURL_SEEKFUNC_OK;
 }
@@ -211,12 +216,31 @@ int LibcurlHttps::sendRequest(const string& method,
 	/* require use of SSL for this, or fail */
 	curl_easy_setopt(m_sender, CURLOPT_USE_SSL, CURLUSESSL_ALL);
 	curl_easy_setopt(m_sender, CURLOPT_SSL_VERIFYPEER, 0L);
+	curl_easy_setopt(m_sender, CURLOPT_SSL_VERIFYHOST, 0L);
+	curl_easy_setopt(m_sender, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_2TLS);
+
+	curl_easy_setopt(m_sender, CURLOPT_NOPROGRESS, 1L);
+	curl_easy_setopt(m_sender, CURLOPT_TCP_KEEPALIVE, 1L);
 
 	/* Select the requested HTTP method */
 	if (method.compare("POST") == 0)
 	{
 		curl_easy_setopt(m_sender, CURLOPT_POST, 1L);
+
+		//# FIXME_I
+		//curl_easy_setopt(m_sender, CURLOPT_POSTFIELDS, "[    {        \"id\": \"TankMeasurement\",        \"version\": \"1.0.0.0\",        \"type\": \"object\",        \"classification\": \"dynamic\",        \"properties\": {            \"Time\": {                \"format\": \"date-time\",                \"type\": \"string\",                \"isindex\": true            },            \"Pressure\": {                \"type\": \"number\",                \"name\": \"Tank Pressure\",                \"description\": \"Tank Pressure in Pa\"            },            \"Temperature\": {                \"type\": \"number\",                \"name\": \"Tank Temperature\",                \"description\": \"Tank Temperature in K\"            }        }    } ]");
+		//curl_easy_setopt(m_sender, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)639);
 		curl_easy_setopt(m_sender, CURLOPT_POSTFIELDSIZE, (long) wt.sizeleft);
+
+		// Configures callbacks if the method requires a payload handling
+		curl_easy_setopt(m_sender, CURLOPT_READFUNCTION, read_callback);
+
+		/* pointer to pass to our read function */
+		curl_easy_setopt(m_sender, CURLOPT_READDATA, &wt);
+
+		//# FIXME_I
+		curl_easy_setopt(m_sender, CURLOPT_SEEKFUNCTION, seek_cb);
+		curl_easy_setopt(m_sender, CURLOPT_SEEKDATA, &wt);
 	}
 
 	// Handle Kerberos authentication
@@ -234,20 +258,6 @@ int LibcurlHttps::sendRequest(const string& method,
 		curl_easy_setopt(m_sender, CURLOPT_HTTPAUTH, CURLAUTH_GSSNEGOTIATE);
 		// The empty user should be defined for Kerberos authentication
 		curl_easy_setopt(m_sender, CURLOPT_USERPWD, ":");
-	}
-
-
-	// Configures callbacks if the method requires a payload handling
-	if (method.compare("POST") == 0)
-	{
-		curl_easy_setopt(m_sender, CURLOPT_READFUNCTION, read_callback);
-
-		/* pointer to pass to our read function */
-		curl_easy_setopt(m_sender, CURLOPT_READDATA, &wt);
-
-		//# FIXME_I
-		curl_easy_setopt(m_sender, CURLOPT_SEEKDATA, &wt);
-		curl_easy_setopt(m_sender, CURLOPT_SEEKFUNCTION, seek_cb);
 	}
 
 	// TODO : post fields handling
@@ -271,6 +281,8 @@ int LibcurlHttps::sendRequest(const string& method,
 
 	/* free the custom headers */
 	curl_slist_free_all(m_chunk);
+	m_sender = NULL;
+	m_chunk = NULL;
 
 	return httpCode;
 }

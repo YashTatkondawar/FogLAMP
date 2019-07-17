@@ -139,8 +139,8 @@ const char *PLUGIN_DEFAULT_CONFIG_INFO = QUOTE(
 		"PIServerEndpoint": {
 			"description": "Defines which PIServer component should be used for the communication: PI Web API, Connector Relay or auto discovery.",
 			"type": "enumeration",
-			"options":["discovery", "piwebapi", "cr"],
-			"default": "discovery",
+			"options":["Auto Discovery", "PI Web API", "Connector Relay"],
+			"default": "Connector Relay",
 			"order": "17",
 			"displayName": "PI-Server Endpoint"
 		},
@@ -341,18 +341,18 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* configData)
 	}
 
 	// Translate the PIServerEndpoint configuration
-	if (PIServerEndpoint.compare("discovery") == 0)
+	if (PIServerEndpoint.compare("Auto Discovery") == 0)
 	{
 		Logger::getLogger()->debug("PI-Server end point auto discovery selected");
 		connInfo->PIServerEndpoint = identifyPIServerEndpoint(connInfo);
 	}
-	else if(PIServerEndpoint.compare("piweb") == 0)
+	else if(PIServerEndpoint.compare("PI Web API") == 0)
 	{
 		Logger::getLogger()->debug("PI-Server end point manually selected - PI Web API ");
 		connInfo->PIServerEndpoint = "p";
 
 	}
-	else if(PIServerEndpoint.compare("cr") == 0)
+	else if(PIServerEndpoint.compare("Connector Relay") == 0)
 	{
 		Logger::getLogger()->debug("PI-Server end point manually selected - Connector Relay ");
 		connInfo->PIServerEndpoint = "c";
