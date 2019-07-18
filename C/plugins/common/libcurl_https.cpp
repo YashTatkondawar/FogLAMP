@@ -15,13 +15,15 @@
 #include <thread>
 #include <logger.h>
 #include <vector>
-#include <curl/curl.h>
+#include <sstream>
 #include <string.h>
 #include <stdlib.h>
+#include <curl/curl.h>
+
 #include "libcurl_https.h"
 
 //# FIXME_I
-#define VERBOSE_LOG 0
+#define VERBOSE_LOG 1
 
 using namespace std;
 
@@ -155,22 +157,22 @@ int LibcurlHttps::sendRequest(const string& method,
 {
 	// Variables definition
 	long httpCode = 0;
-	string retCode;
-	string response;
+	string httpResponseText = "";
 
 	bool retry = false;
-	int  retry_count = 1;
-	int  sleep_time = m_retry_sleep_time;
+	int  retryCount = 1;
+	int  sleepTime = m_retry_sleep_time;
 
-	CURLcode res;
+	CURLcode res = CURLE_OK;
 
 	enum exceptionType
 	{
 	    none, typeBadRequest, typeException
 	};
 
-	exceptionType exception_raised;
-	string exception_message;
+	exceptionType exceptionRaised = none;
+	string exceptionMessage;
+	string errorMessage;
 
 	// Init libcurl
 	m_sender = curl_easy_init();
@@ -211,24 +213,123 @@ int LibcurlHttps::sendRequest(const string& method,
 		Logger::getLogger()->debug("libcurl_https - method DELETE currently not implemented ");
 	}
 
-	exception_raised = none;
-	httpCode = 0;
-
-	// Execute the HTTP method
-	res = curl_easy_perform(m_sender);
-
-	curl_easy_getinfo(m_sender, CURLINFO_RESPONSE_CODE, &httpCode);
-
-	if(res != CURLE_OK)
+	do
 	{
-		Logger::getLogger()->error("libcurl_https - curl_easy_perform failed :%s: ", curl_easy_strerror(res));
-	}
+		try
+		{
+			exceptionRaised = none;
+			httpCode = 0;
+			httpResponseText = "";
+
+			// Execute the HTTP method
+			res = curl_easy_perform(m_sender);
+
+			curl_easy_getinfo(m_sender, CURLINFO_RESPONSE_CODE, &httpCode);
+			// TODO : retrieve HTTP response message - into httpResponseText
+
+		}
+		catch (exception &ex)
+		{
+			exceptionRaised = typeException;
+			errorMessage = "Failed to send data: ";
+			errorMessage.append(ex.what());
+		}
+
+
+		if ( (res == CURLE_OK )                          &&
+		     (exceptionRaised == none )                  &&
+		     ((httpCode >= 200) && (httpCode <= 399))
+		     )
+		{
+			retry = false;
+#if VERBOSE_LOG
+			Logger::getLogger()->info("HTTPS sendRequest succeeded : retry count |%d| HTTP code |%d| message |%s|",
+						  retryCount,
+						  httpCode,
+						  payload.c_str());
+#endif
+		}
+		else
+		{
+
+#if VERBOSE_LOG
+			if (exceptionRaised)
+			{
+				Logger::getLogger()->error(
+					"HTTPS sendRequest : retry count |%d| error |%s| message |%s|",
+					retryCount,
+					errorMessage.c_str(),
+					payload.c_str());
+
+			}
+			else
+			{
+				if (res != CURLE_OK)
+				{
+					errorMessage = string(curl_easy_strerror(res) );
+					if (httpResponseText.compare("") != 0 )
+						errorMessage += " - " + httpResponseText;
+				}
+				else
+				{
+					errorMessage = httpResponseText;
+				}
+
+				Logger::getLogger()->error(
+					"HTTPS sendRequest : retry count |%d| HTTP code |%d| error message |%s| HTTP message |%s|",
+					retryCount,
+					httpCode,
+					errorMessage.c_str(),
+					payload.c_str());
+			}
+#endif
+
+			if (retryCount < m_max_retry)
+			{
+				this_thread::sleep_for(chrono::seconds(sleepTime));
+
+				retry = true;
+				sleepTime *= 2;
+				retryCount++;
+			}
+			else
+			{
+				retry = false;
+			}
+
+		}
+	} while (retry);
 
 	// Cleanup
 	curl_easy_cleanup(m_sender);
 	curl_slist_free_all(m_chunk);
 	m_sender = NULL;
 	m_chunk = NULL;
+
+	// Check if an error should be raised
+	if (exceptionRaised == none)
+	{
+		// 0 = HTTP failed without an HTTP code
+		if (httpCode == 0)
+		{
+			throw runtime_error(errorMessage);
+		}
+		else if (httpCode == 400)
+		{
+			throw BadRequest(errorMessage);
+		}
+		else if (httpCode >= 401)
+		{
+			string errorMessageHTTP;
+			errorMessageHTTP = "HTTP code |" + to_string(httpCode) +  "| - HTTP error |" + errorMessage + "|";
+
+			throw runtime_error(errorMessageHTTP);
+		}
+	}
+	else
+	{
+		throw runtime_error(errorMessage);
+	}
 
 	return httpCode;
 }

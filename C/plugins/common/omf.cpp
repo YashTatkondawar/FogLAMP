@@ -491,6 +491,7 @@ bool OMF::AFHierarchySendMessage(const string& msgType, string& jsonData)
 {
 	bool success = true;
 	int res = 0;
+	string errorMessage;
 
 	vector<pair<string, string>> resType = OMF::createMessageHeader(msgType);
 
@@ -502,24 +503,27 @@ bool OMF::AFHierarchySendMessage(const string& msgType, string& jsonData)
 			success = false;
 		}
 	}
-	catch (const BadRequest& e)
+	catch (const BadRequest& ex)
 	{
 		success = false;
+		errorMessage = ex.what();
 	}
-	catch (const std::exception& e)
+	catch (const std::exception& ex)
 	{
 		success = false;
+		errorMessage = ex.what();
 	}
 
 	if (! success)
 	{
 		Logger::getLogger()->error("Sending JSON  Asset Framework hierarchy, "
-			                   "- error: HTTP code |%d| - HostPort |%s| - path |%s| message type |%s| - OMF message |%s|",
-					   res,
-					   m_sender.getHostPort().c_str(),
-					   m_path.c_str(),
-					   msgType.c_str(),
-					   jsonData.c_str() );
+	                                   "- error: HTTP code |%d| - error message |%s| - HostPort |%s| - path |%s| message type |%s| - OMF message |%s|",
+	                                   res,
+	                                   errorMessage.c_str(),
+	                                   m_sender.getHostPort().c_str(),
+	                                   m_path.c_str(),
+	                                   msgType.c_str(),
+	                                   jsonData.c_str() );
 	}
 
 	return success;
