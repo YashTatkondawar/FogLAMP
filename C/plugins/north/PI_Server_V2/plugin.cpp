@@ -22,6 +22,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "json_utils.h"
 #include "libcurl_https.h"
+#include "utils.h"
 
 #include "crypto.hpp"
 
@@ -186,9 +187,18 @@ const char *PLUGIN_DEFAULT_CONFIG_INFO = QUOTE(
 			"default": "password",
 			"order": "23" ,
 			"displayName": "PI Web API Password"
+		},
+		"PIWebAPIKerberosKeytabFileName": {
+			"description": "Keytab file name used for Kerberos authentication in PI Web API.",
+			"type": "string",
+			"default": "piwebapi_kerberos_https.keytab",
+			"order": "24" ,
+			"displayName": "PI Web API Kerberos keytab file"
 		}
 	}
 );
+
+
 
 // "default": "{\"pipeline\": [\"DeltaFilter\"]}"
 
@@ -214,10 +224,16 @@ typedef struct
 	string		AFHierarchy1Level;      // 1st hierarchy in Asset Framework, PI Web API only.
     	string		PIWebAPIAuthMethod;     // Authentication method to be used with the PI Web API.
     	string		PIWebAPICredentials;    // Credentials is the base64 encoding of id and password joined by a single colon (:)
+	string 		KerberosKeytab;         // Kerberos authentication keytab file
+	                                        //   stores the environment variable value about the keytab file path
+	                                        //   to allow the environment to persist for all the execution of the plugin
+	                                        //
+	                                        //   Note : A keytab is a file containing pairs of Kerberos principals
+	                                        //   and encrypted keys (which are derived from the Kerberos password).
+	                                        //   You can use a keytab file to authenticate to various remote systems
+	                                        //   using Kerberos without entering a password.
 
-
-
-	vector<pair<string, string>>
+    vector<pair<string, string>>
 			staticData;	// Static data
         // Errors considered not blocking in the communication with the PI Server
 	std::vector<std::string>
@@ -227,11 +243,12 @@ typedef struct
 			assetsDataTypes;
 } CONNECTOR_INFO;
 
-string saveSentDataTypes(CONNECTOR_INFO* connInfo);
-void   loadSentDataTypes(CONNECTOR_INFO* connInfo, Document& JSONData);
-long   getMaxTypeId(CONNECTOR_INFO* connInfo);
-string identifyPIServerEndpoint(CONNECTOR_INFO* connInfo);
-string AuthBasicCredentialsGenerate(string& userId, string& password);
+string saveSentDataTypes            (CONNECTOR_INFO* connInfo);
+void   loadSentDataTypes            (CONNECTOR_INFO* connInfo, Document& JSONData);
+long   getMaxTypeId                 (CONNECTOR_INFO* connInfo);
+string identifyPIServerEndpoint     (CONNECTOR_INFO* connInfo);
+string AuthBasicCredentialsGenerate (string& userId, string& password);
+void   AuthKerberosSetup            (string& keytabFile, string& keytabFileName);
 
 /**
  * Return the information about this plugin
@@ -284,9 +301,10 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* configData)
 	string PIServerEndpoint = configData->getValue("PIServerEndpoint");
 	string AFHierarchy1Level = configData->getValue("AFHierarchy1Level");
 
-	string PIWebAPIAuthMethod = configData->getValue("PIWebAPIAuthenticationMethod");
-	string PIWebAPIUserId = configData->getValue("PIWebAPIUserId");
-	string PIWebAPIPassword = configData->getValue("PIWebAPIPassword");
+	string PIWebAPIAuthMethod     = configData->getValue("PIWebAPIAuthenticationMethod");
+	string PIWebAPIUserId         = configData->getValue("PIWebAPIUserId");
+	string PIWebAPIPassword       = configData->getValue("PIWebAPIPassword");
+	string KerberosKeytabFileName = configData->getValue("PIWebAPIKerberosKeytabFileName");
 
 	/**
 	 * Extract host, port, path from URL
@@ -334,6 +352,7 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* configData)
 	{
 		Logger::getLogger()->debug("PI Web API end-point - kerberos authentication");
 		connInfo->PIWebAPIAuthMethod = "k";
+		AuthKerberosSetup(connInfo->KerberosKeytab, KerberosKeytabFileName);
 	}
 	else
 	{
@@ -370,7 +389,6 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* configData)
 		Logger::getLogger()->debug("PI-Server end point selected - Connector Relay");
 	else
 		Logger::getLogger()->error("Invalid PI-Server end point");
-
 
 	// Use compression ?
 	string compr = configData->getValue("compression");
@@ -872,4 +890,23 @@ string AuthBasicCredentialsGenerate(string& userId, string& password)
 	Credentials = Crypto::Base64::encode(userId + ":" + password);
 	              	
 	return (Credentials);
+}
+
+/**
+ * Configures for Kerberos authentication :
+ *   - set the environment KRB5_CLIENT_KTNAME to the position containing the
+ *     Kerberos keys, the keytab file.
+ *
+ * @param   out  keytabEnv       string containing the command to set the
+ *                               KRB5_CLIENT_KTNAME environment variable
+ * @param        keytabFileName  File name of the keytab file
+ *
+ */
+void AuthKerberosSetup(string& keytabEnv, string& keytabFileName)
+{
+	string fogLAMPData = getDataDir ();
+	string keytabPath = fogLAMPData + "/etc/kerberos";
+	keytabEnv = "KRB5_CLIENT_KTNAME=" + keytabPath + "/" + keytabFileName;
+
+	putenv((char *) keytabEnv.c_str());
 }
