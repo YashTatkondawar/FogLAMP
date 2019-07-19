@@ -516,14 +516,24 @@ bool OMF::AFHierarchySendMessage(const string& msgType, string& jsonData)
 
 	if (! success)
 	{
-		Logger::getLogger()->error("Sending JSON  Asset Framework hierarchy, "
-	                                   "- error: HTTP code |%d| - error message |%s| - HostPort |%s| - path |%s| message type |%s| - OMF message |%s|",
-	                                   res,
-	                                   errorMessage.c_str(),
-	                                   m_sender.getHostPort().c_str(),
-	                                   m_path.c_str(),
-	                                   msgType.c_str(),
-	                                   jsonData.c_str() );
+		if (res != 0)
+			Logger::getLogger()->error("Sending JSON  Asset Framework hierarchy, "
+						   "- HTTP code |%d| - error message |%s| - HostPort |%s| - path |%s| message type |%s| - OMF message |%s|",
+						   res,
+						   errorMessage.c_str(),
+						   m_sender.getHostPort().c_str(),
+						   m_path.c_str(),
+						   msgType.c_str(),
+						   jsonData.c_str() );
+		else
+			Logger::getLogger()->error("Sending JSON  Asset Framework hierarchy, "
+						   "- error message |%s| - HostPort |%s| - path |%s| message type |%s| - OMF message |%s|",
+						   errorMessage.c_str(),
+						   m_sender.getHostPort().c_str(),
+						   m_path.c_str(),
+						   msgType.c_str(),
+						   jsonData.c_str() );
+
 	}
 
 	return success;

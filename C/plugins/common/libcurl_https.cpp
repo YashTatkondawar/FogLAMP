@@ -21,9 +21,12 @@
 #include <curl/curl.h>
 
 #include "libcurl_https.h"
+#include "string_utils.h"
 
-//# FIXME_I
-#define VERBOSE_LOG 1
+//# FIXME_I - set to 0
+#define VERBOSE_LOG      0
+
+#define HTTP_HEADER_LINE 255
 
 using namespace std;
 
@@ -64,6 +67,38 @@ LibcurlHttps::~LibcurlHttps()
 size_t cb_write_data(void *buffer, size_t size, size_t nmemb, void *userp)
 {
 	return size * nmemb;
+}
+
+/**
+ * Handle the call back header to retrieve the text message in response to an HTTP request
+ * this call back is called for all the headers lines
+ *
+ * received header is nitems * size long in 'buffer' NOT ZERO TERMINATED
+ * userdata' is set with CURLOPT_HEADERDATA
+ *
+ * @param buffer        Header message
+ * @param size          (nitems * size) is the size of 'buffer'
+ * @param nitems
+ * @param userdata out  Buffer to store the data needed
+ *
+ */
+static size_t cb_header(char *buffer, size_t size, size_t nitems, void *userdata)
+{
+
+	char *header = (char *)  userdata;
+	int  numBytes = 0;
+
+	// Only the first line of the headers is needed
+	if (*header == '\0')
+	{
+		if ((size * nitems) < (HTTP_HEADER_LINE - 1))
+			numBytes = size * nitems;
+		else
+			numBytes = HTTP_HEADER_LINE - 1;
+
+		sprintf(header, "%.*s", numBytes, buffer);
+	}
+	return nitems * size;
 }
 
 /**
@@ -156,8 +191,9 @@ int LibcurlHttps::sendRequest(const string& method,
 			     const string& payload)
 {
 	// Variables definition
-	long httpCode = 0;
-	string httpResponseText = "";
+	long   httpCode = 0;
+	string httpResponseText;
+	char   httpHeaderBuffer[HTTP_HEADER_LINE];
 
 	bool retry = false;
 	int  retryCount = 1;
@@ -220,13 +256,23 @@ int LibcurlHttps::sendRequest(const string& method,
 			exceptionRaised = none;
 			httpCode = 0;
 			httpResponseText = "";
+			httpHeaderBuffer[0] = '\0';
+
+			// It is needed to handle the call back header to retrieve the text message
+			// in response to an HTTP request
+			// curl.haxx.se/mail/lib-2013-10/0114.html
+			curl_easy_setopt(m_sender, CURLOPT_HEADERDATA,     httpHeaderBuffer);
+			curl_easy_setopt(m_sender, CURLOPT_HEADERFUNCTION, cb_header);
 
 			// Execute the HTTP method
 			res = curl_easy_perform(m_sender);
 
 			curl_easy_getinfo(m_sender, CURLINFO_RESPONSE_CODE, &httpCode);
-			// TODO : retrieve HTTP response message - into httpResponseText
 
+			// fix the text message
+			// NOTE : the text should be considered only if the HTTP code is not an ACK
+			httpResponseText = httpHeaderBuffer;
+			StringStripCRLF(httpResponseText);
 		}
 		catch (exception &ex)
 		{
@@ -251,6 +297,16 @@ int LibcurlHttps::sendRequest(const string& method,
 		}
 		else
 		{
+			if (res != CURLE_OK)
+			{
+				errorMessage = string(curl_easy_strerror(res) );
+				if (httpResponseText.compare("") != 0 )
+					errorMessage += " - " + httpResponseText;
+			}
+			else
+			{
+				errorMessage = httpResponseText;
+			}
 
 #if VERBOSE_LOG
 			if (exceptionRaised)
@@ -264,17 +320,6 @@ int LibcurlHttps::sendRequest(const string& method,
 			}
 			else
 			{
-				if (res != CURLE_OK)
-				{
-					errorMessage = string(curl_easy_strerror(res) );
-					if (httpResponseText.compare("") != 0 )
-						errorMessage += " - " + httpResponseText;
-				}
-				else
-				{
-					errorMessage = httpResponseText;
-				}
-
 				Logger::getLogger()->error(
 					"HTTPS sendRequest : retry count |%d| HTTP code |%d| error message |%s| HTTP message |%s|",
 					retryCount,
