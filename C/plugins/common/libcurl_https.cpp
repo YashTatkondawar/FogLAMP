@@ -235,18 +235,24 @@ int LibcurlHttps::sendRequest(const string& method,
 	else if (method.compare("GET") == 0)
 	{
 		// TODO : to be implemented
-		Logger::getLogger()->debug("libcurl_https - method GET currently not implemented ");
+		errorMessage = "libcurl_https - method GET is not currently implemented";
+		Logger::getLogger()->debug(errorMessage);
+		throw runtime_error(errorMessage);
 	}
 	else if (method.compare("PUT") == 0)
 	{
 		// TODO : to be implemented
-		Logger::getLogger()->debug("libcurl_https - method PUT currently not implemented ");
+		errorMessage = "libcurl_https - method PUT currently not implemented";
+		Logger::getLogger()->debug("libcurl_https - method PUT is not currently implemented");
+		throw runtime_error(errorMessage);
 
 	}
 	else if (method.compare("DELETE") == 0)
 	{
 		// TODO : to be implemented
-		Logger::getLogger()->debug("libcurl_https - method DELETE currently not implemented ");
+		errorMessage = "libcurl_https - method DELETE currently not implemented";
+		Logger::getLogger()->debug("libcurl_https - method DELETE is not currently implemented ");
+		throw runtime_error(errorMessage);
 	}
 
 	do

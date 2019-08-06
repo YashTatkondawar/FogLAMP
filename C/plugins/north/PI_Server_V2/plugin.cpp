@@ -825,15 +825,27 @@ string identifyPIServerEndpoint(CONNECTOR_INFO* connInfo)
 {
 	string PIServerEndpoint;
 
-	SimpleHttps *endPoint;
+	HttpSender *endPoint;
 	vector<pair<string, string>> header;
 	int httpCode;
 
-	endPoint = new SimpleHttps(connInfo->hostAndPort,
-				   connInfo->timeout,
-				   connInfo->timeout,
-				   connInfo->retrySleepTime,
-				   connInfo->maxRetry);
+
+	if (connInfo->PIWebAPIAuthMethod.compare("k") == 0)
+	{
+		endPoint = new LibcurlHttps(connInfo->hostAndPort,
+					    connInfo->timeout,
+					    connInfo->timeout,
+					    connInfo->retrySleepTime,
+					    connInfo->maxRetry);
+	}
+	else
+	{
+		endPoint = new SimpleHttps(connInfo->hostAndPort,
+					   connInfo->timeout,
+					   connInfo->timeout,
+					   connInfo->retrySleepTime,
+					   connInfo->maxRetry);
+	}
 
 	// Set requested authentication
 	endPoint->setAuthMethod          (connInfo->PIWebAPIAuthMethod);
