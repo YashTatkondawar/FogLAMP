@@ -110,8 +110,8 @@ elif apt --version 2>/dev/null; then
 	apt install -y sqlite3 libsqlite3-dev
 	apt install -y pkg-config
 
-	# for Kerberos authentication
-	apt install -y krb5-user
+	# for Kerberos authentication, avoid interactive questions
+	DEBIAN_FRONTEND=noninteractive apt -yq install krb5-user
 	apt install -y libcurl4-openssl-dev
 
 	# sudo apt install -y postgresql

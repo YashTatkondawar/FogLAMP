@@ -305,6 +305,7 @@ int LibcurlHttps::sendRequest(const string& method,
 			}
 			else
 			{
+				// the situation is : CURLE_OK but the httpCode reports an error
 				errorMessage = httpResponseText;
 			}
 
