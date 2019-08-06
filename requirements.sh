@@ -111,7 +111,7 @@ elif apt --version 2>/dev/null; then
 	apt install -y pkg-config
 
 	# for Kerberos authentication, avoid interactive questions
-	DEBIAN_FRONTEND=noninteractive apt -yq install krb5-user
+	DEBIAN_FRONTEND=noninteractive apt install -yq krb5-user
 	DEBIAN_FRONTEND=noninteractive apt install -yq libcurl4-openssl-dev
 
 	# sudo apt install -y postgresql
