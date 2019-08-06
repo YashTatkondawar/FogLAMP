@@ -112,7 +112,7 @@ elif apt --version 2>/dev/null; then
 
 	# for Kerberos authentication, avoid interactive questions
 	DEBIAN_FRONTEND=noninteractive apt -yq install krb5-user
-	apt install -y libcurl4-openssl-dev
+	DEBIAN_FRONTEND=noninteractive apt install -yq libcurl4-openssl-dev
 
 	# sudo apt install -y postgresql
 else
