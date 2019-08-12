@@ -294,10 +294,9 @@ int LibcurlHttps::sendRequest(const string& method,
 		{
 			retry = false;
 #if VERBOSE_LOG
-			Logger::getLogger()->info("HTTPS sendRequest succeeded : retry count |%d| HTTP code |%d| message |%s|",
+			Logger::getLogger()->info("HTTPS sendRequest succeeded : retry count |%d| HTTP code |%d|",
 						  retryCount,
-						  httpCode,
-						  payload.c_str());
+						  httpCode);
 #endif
 		}
 		else
