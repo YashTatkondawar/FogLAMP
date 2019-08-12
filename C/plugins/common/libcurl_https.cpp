@@ -120,7 +120,6 @@ void LibcurlHttps::setLibCurlOptions(CURL *sender, const string& path, const vec
 	// this workaround is needed to avoid all libcurl debug messages
 	curl_easy_setopt(m_sender, CURLOPT_WRITEFUNCTION, cb_write_data);
 #endif
-
 	curl_easy_setopt(m_sender, CURLOPT_NOPROGRESS, 1L);
 	curl_easy_setopt(m_sender, CURLOPT_TCP_KEEPALIVE, 1L);
 
@@ -229,8 +228,8 @@ int LibcurlHttps::sendRequest(const string& method,
 	{
 		curl_easy_setopt(m_sender, CURLOPT_POST, 1L);
 
-		curl_easy_setopt(m_sender, CURLOPT_POSTFIELDS,                 payload.c_str());
-		curl_easy_setopt(m_sender, CURLOPT_POSTFIELDSIZE_LARGE, (long) payload.length());
+		curl_easy_setopt(m_sender, CURLOPT_POSTFIELDS,           payload.c_str());
+		curl_easy_setopt(m_sender, CURLOPT_POSTFIELDSIZE, (long) payload.length());
 	}
 	else if (method.compare("GET") == 0)
 	{
