@@ -87,9 +87,31 @@ static size_t cb_header(char *buffer, size_t size, size_t nitems, void *userdata
 
 	char *header = (char *)  userdata;
 	int  numBytes = 0;
+	bool getHeader = false;
 
 	// Only the first line of the headers is needed
 	if (*header == '\0')
+	{
+		getHeader = true;
+	}
+	else
+	{
+		// in some situations as using Kerberos
+		// the last header starting with HTTP contains the real error
+		char tmpBuffer[10];
+		sprintf(tmpBuffer, "%.*s", 4, buffer);
+
+		string tmpStr = tmpBuffer;
+		for (auto & c: tmpStr) c = toupper(c);
+
+		if (tmpStr.compare("HTTP") == 0) {
+
+			getHeader = true;
+		}
+
+	}
+
+	if (getHeader)
 	{
 		if ((size * nitems) < (HTTP_HEADER_LINE - 1))
 			numBytes = size * nitems;
