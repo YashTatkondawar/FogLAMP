@@ -611,9 +611,6 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 
 	std::map<string, Reading*> superSetDataPoints;
 
-	Logger::getLogger()->setMinLevel("debug");
-	Logger::getLogger()->debug("DBG sendToServer");
-
 	// Create a superset of all found datapoints for each assetName
 	// the superset[assetName] is then passed to routines which handle
 	// creation of OMF data types
