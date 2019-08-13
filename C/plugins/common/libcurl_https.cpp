@@ -23,7 +23,6 @@
 #include "libcurl_https.h"
 #include "string_utils.h"
 
-//# FIXME_I - set to 0
 #define VERBOSE_LOG      0
 
 #define HTTP_HEADER_LINE 255
