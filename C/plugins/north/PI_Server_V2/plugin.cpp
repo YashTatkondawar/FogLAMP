@@ -7,6 +7,8 @@
  *
  * Author: Massimiliano Pinto, Stefano Simonelli
  */
+#include <unistd.h>
+
 #include <plugin_api.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -912,8 +914,14 @@ string AuthBasicCredentialsGenerate(string& userId, string& password)
 void AuthKerberosSetup(string& keytabEnv, string& keytabFileName)
 {
 	string fogLAMPData = getDataDir ();
-	string keytabPath = fogLAMPData + "/etc/kerberos";
-	keytabEnv = "KRB5_CLIENT_KTNAME=" + keytabPath + "/" + keytabFileName;
+	string keytabFullPath = fogLAMPData + "/etc/kerberos" + "/" + keytabFileName;
 
+	keytabEnv = "KRB5_CLIENT_KTNAME=" + keytabFullPath;
 	putenv((char *) keytabEnv.c_str());
+
+	if (access(keytabFullPath.c_str(), F_OK) != 0)
+	{
+		Logger::getLogger()->error("Kerberos authentication not possible, the keytab file :%s: is missing.", keytabFullPath.c_str());
+	}
+
 }
