@@ -11,15 +11,19 @@ import logging
 import asyncio
 import tarfile
 import hashlib
+import json
 
 from aiohttp import web
 import aiohttp
 import async_timeout
+from typing import Dict
 
 from foglamp.common.common import _FOGLAMP_ROOT, _FOGLAMP_DATA
 from foglamp.services.core.api.plugins import common
 from foglamp.common import logger
-
+from foglamp.services.core.api.plugins.exceptions import *
+from foglamp.services.core import connect
+from foglamp.common.configuration_manager import ConfigurationManager
 
 __author__ = "Ashish Jabble"
 __copyright__ = "Copyright (c) 2019 Dianomic Systems Inc."
@@ -72,17 +76,17 @@ async def add_plugin(request: web.Request) -> web.Response:
                 if str(version).count(delimiter) != 2:
                     raise ValueError('Plugin semantic version is incorrect; it should be like X.Y.Z')
 
-            plugins = common.fetch_available_packages()
+            plugins, log_path = common.fetch_available_packages()
             if name not in plugins:
                 raise KeyError('{} plugin is not available for the given repository'.format(name))
 
             _platform = platform.platform()
             pkg_mgt = 'yum' if 'centos' in _platform or 'redhat' in _platform else 'apt'
-            code, msg = install_package_from_repo(name, pkg_mgt, version)
+            code, link = await install_package_from_repo(name, pkg_mgt, version)
             if code != 0:
-                raise ValueError(msg)
+                raise PackageError(link)
 
-            message = "{} is successfully installed".format(name)
+            result_payload = {"message": "{} is successfully installed".format(name), "link": link}
         else:
             if not url or not checksum:
                 raise TypeError('URL, checksum params are required')
@@ -122,15 +126,18 @@ async def add_plugin(request: web.Request) -> web.Response:
                 if code != 0:
                     raise ValueError(msg)
 
-            message = "{} is successfully downloaded and installed".format(file_name)
+            result_payload = {"message": "{} is successfully downloaded and installed".format(file_name)}
     except (FileNotFoundError, KeyError) as ex:
         raise web.HTTPNotFound(reason=str(ex))
     except (TypeError, ValueError) as ex:
         raise web.HTTPBadRequest(reason=str(ex))
+    except PackageError as e:
+        msg = "Plugin installation request failed"
+        raise web.HTTPBadRequest(body=json.dumps({"message": msg, "link": str(e)}), reason=msg)
     except Exception as ex:
         raise web.HTTPException(reason=str(ex))
     else:
-        return web.json_response({"message": message})
+        return web.json_response(result_payload)
 
 
 async def get_url(url: str, session: aiohttp.ClientSession) -> str:
@@ -245,21 +252,26 @@ def copy_file_install_requirement(dir_files: list, plugin_type: str, file_name: 
     return code, msg
 
 
-def install_package_from_repo(name: str, pkg_mgt: str, version: str) -> tuple:
-    stdout_file_path = "/data/plugins/output.txt"
+async def install_package_from_repo(name: str, pkg_mgt: str, version: str) -> tuple:
+    stdout_file_path = common.create_log_file(name)
+    link = "log/" + stdout_file_path.split("/")[-1]
+    cat_item = await check_upgrade_on_install()
+    if 'value' in cat_item:
+        if cat_item['value'] == "true":
+            cmd = "sudo {} -y upgrade".format(pkg_mgt)
+            ret_code = os.system(cmd + " > {} 2>&1".format(stdout_file_path))
+            if ret_code != 0:
+                raise PackageError(link)
+
     cmd = "sudo {} -y install {}".format(pkg_mgt, name)
     if version:
         cmd = "sudo {} -y install {}={}".format(pkg_mgt, name, version)
 
-    ret_code = os.system(cmd + " > {} 2>&1".format(_FOGLAMP_ROOT + stdout_file_path))
-    msg = ""
-    with open("{}".format(_FOGLAMP_ROOT + stdout_file_path), 'r') as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-            msg += line
+    ret_code = os.system(cmd + " >> {} 2>&1".format(stdout_file_path))
+    return ret_code, link
 
-    # Remove stdout file
-    cmd = "{}/extras/C/cmdutil rm {}".format(_FOGLAMP_ROOT, stdout_file_path)
-    subprocess.run([cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
-    return ret_code, msg
+async def check_upgrade_on_install() -> Dict:
+    cf_mgr = ConfigurationManager(connect.get_storage_async())
+    category_item = await cf_mgr.get_category_item("Installation", "upgradeOnInstall")
+    return category_item
