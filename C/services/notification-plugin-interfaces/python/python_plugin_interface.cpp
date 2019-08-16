@@ -170,7 +170,6 @@ void *PluginInterfaceInit(const char *pluginName, const char * pluginPathName)
 		else
 		{
 			Logger::getLogger()->debug("%s:%d: python module loaded successfully, pModule=%p, plugin '%s'",
-						   "successfully, pModule=%p, plugin '%s'",
 						   __FUNCTION__,
 						   __LINE__,
 						   pModule,
