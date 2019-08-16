@@ -563,7 +563,7 @@ void notification_plugin_reconfigure_fn(PLUGIN_HANDLE handle,
 	PyObject* pFunc;
 	// Fetch required method in loaded object
 	pFunc = PyObject_GetAttrString(it->second, "plugin_reconfigure");
-	if (!!pFunc)
+	if (!pFunc)
 	{       
 		Logger::getLogger()->fatal("Cannot find method 'plugin_reconfigure' "
 					   "in loaded python module '%s'",
