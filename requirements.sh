@@ -38,9 +38,11 @@ curl_upgrade(){
 	git status
 	cd "${curl_path}"
 
+	# curl in RHEL/CentOS is installed in /bin/curl and
+	# curl installs by default in /usr/local, so the --prefix=/usr is used
 	echo "Building curl ..."
 	./buildconf && \
-	./configure --with-ssl --with-gssapi && \
+	./configure --with-ssl --with-gssapi --prefix=/ && \
 	make && \
 	sudo make install
 }
@@ -49,7 +51,6 @@ curl_upgrade(){
 curl_version_check () {
 
 	set +e
-	source ${HOME}/.bashrc
 
 	curl_version=$(curl -V | head -n 1)
 	curl_default=$(echo "${curl_version}" | grep -c "${curl_foglamp_version}")
