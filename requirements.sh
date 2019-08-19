@@ -49,6 +49,7 @@ curl_upgrade(){
 curl_version_check () {
 
 	set +e
+	source ${HOME}/.bashrc
 
 	curl_version=$(curl -V | head -n 1)
 	curl_default=$(echo "${curl_version}" | grep -c "${curl_foglamp_version}")
