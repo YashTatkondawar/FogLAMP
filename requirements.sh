@@ -48,6 +48,8 @@ curl_upgrade(){
 # Check if the curl version related to FogLAMP has been installed
 curl_version_check () {
 
+	set +e
+
 	curl_version=$(curl -V | head -n 1)
 	curl_default=$(echo "${curl_version}" | grep -c "${curl_foglamp_version}")
 
@@ -57,13 +59,16 @@ curl_version_check () {
 		echo "WARNING: curl version ${curl_foglamp_version} not installed, current version :${curl_version}:"
 	fi
 
+	set -e
 }
 
 # Evaluates the current version of curl and upgrades it if needed
 curl_upgrade_evaluates(){
 
+	set +e
 	curl_version=$(curl -V | head -n 1)
 	curl_default=$(echo "${curl_version}" | grep -c "${curl_default_version}")
+	set -e
 
 	# Evaluates if the curl is the default one and so it needs to be upgraded
 	if (( $curl_default >= 1 )); then
@@ -102,6 +107,7 @@ os_version=`(grep -o '^VERSION_ID=.*' /etc/os-release | cut -f2 -d\" | sed 's/"/
 echo "Platform is ${os_name}, Version: ${os_version}"
 
 if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *"7"* ]]; then
+
 	if [[ $os_name == *"Red Hat"* ]]; then
 		yum-config-manager --enable 'Red Hat Enterprise Linux Server 7 RHSCL (RPMs)'
 		yum install -y @development
@@ -109,6 +115,7 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 		yum groupinstall "Development tools" -y
 		yum install -y centos-release-scl
 	fi
+
 	yum install -y boost-devel
 	yum install -y glib2-devel
 	yum install -y rsyslog
@@ -141,9 +148,6 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 	./configure --enable-shared=false --enable-static=true --enable-static-shell CFLAGS="-DSQLITE_ENABLE_JSON1 -DSQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_ENABLE_COLUMN_METADATA -fno-common -fPIC"
 	autoreconf -f -i
 
-	# Upgrade curl if needed
-	curl_upgrade_evaluates
-
 	# Attempts a second execution of make if the first fails
 	set +e
 	make
@@ -155,6 +159,9 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 	fi
 	cd $foglamp_location
 	set -e
+
+	# Upgrade curl if needed
+	curl_upgrade_evaluates
 
 	cd $foglamp_location
 
