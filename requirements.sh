@@ -20,8 +20,81 @@
 ## Author: Ashish Jabble, Massimiliano Pinto, Vaibhav Singhal
 ##
 
-
 set -e
+
+# Upgrades curl to the version related to FogLAMP
+curl_upgrade(){
+
+	if [ -d "${pkg_path}" ]; then
+		rm -rf "${pkg_path}"
+	fi
+
+	echo "Pulling curl from the FogLAMP curl repository ..."
+	cd /tmp/
+
+	git clone https://github.com/foglamp/foglamp-curl-pkg.git
+	cd "${pkg_path}"
+	git checkout ${curl_branch}
+	git status
+	cd "${curl_path}"
+
+	echo "Building curl ..."
+	./buildconf && \
+	./configure --with-ssl --with-gssapi && \
+	make && \
+	sudo make install
+}
+
+# Check if the curl version related to FogLAMP has been installed
+curl_version_check () {
+
+	curl_version=$(curl -V | head -n 1)
+	curl_default=$(echo "${curl_version}" | grep -c "${curl_foglamp_version}")
+
+	if (( $curl_default >= 1 )); then
+		echo "curl version ${curl_foglamp_version} installed."
+	else
+		echo "WARNING: curl version ${curl_foglamp_version} not installed, current version :${curl_version}:"
+	fi
+
+}
+
+# Evaluates the current version of curl and upgrades it if needed
+curl_upgrade_evaluates(){
+
+	curl_version=$(curl -V | head -n 1)
+	curl_default=$(echo "${curl_version}" | grep -c "${curl_default_version}")
+
+	# Evaluates if the curl is the default one and so it needs to be upgraded
+	if (( $curl_default >= 1 )); then
+
+		echo "curl version ${curl_default_version} detected, the standard RHEL/CentOS, upgrading to ${curl_foglamp_version}"
+		curl_upgrade
+
+		curl_version_check
+	else
+		echo "A curl version different from the default ${curl_default_version} detected, upgrade to a newer one if FogLAMP make fails."
+		echo "version detected :${curl_version}:"
+
+		# Evaluates if the installed version support Kerberos
+		curl_kerberos=$(curl -V | grep -ic "Kerberos")
+		curl_gssapi=$(curl -V | grep -ic "GSS-API")
+
+		if [[ $curl_kerberos == 0 || curl_gssapi == 0 ]]; then
+
+			echo "WARNING : the curl version detected doesn't support Kerberos."
+		fi
+	fi
+
+}
+
+# Variables for curl upgrade
+pkg_path=/tmp/foglamp-curl-pkg
+curl_path=curl
+curl_foglamp_version=7.65.3
+# FIXME_I
+curl_branch=FOGL-2947
+curl_default_version=7.29
 
 foglamp_location=`pwd`
 os_name=`(grep -o '^NAME=.*' /etc/os-release | cut -f2 -d\" | sed 's/"//g')`
@@ -55,7 +128,7 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 	echo "source scl_source enable rh-python36" >> /home/${SUDO_USER}/.bashrc
 	service rsyslog start
 
-# SQLite3 need to be compiled on CentOS|RHEL
+	# SQLite3 need to be compiled on CentOS|RHEL
 	if [ -d /tmp/foglamp-sqlite3-pkg ]; then
 		rm -rf /tmp/foglamp-sqlite3-pkg
 	fi
@@ -67,6 +140,9 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 	echo "Compiling SQLite3 static library for FogLAMP ..."
 	./configure --enable-shared=false --enable-static=true --enable-static-shell CFLAGS="-DSQLITE_ENABLE_JSON1 -DSQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_ENABLE_COLUMN_METADATA -fno-common -fPIC"
 	autoreconf -f -i
+
+	# Upgrade curl if needed
+	curl_upgrade_evaluates
 
 	# Attempts a second execution of make if the first fails
 	set +e
