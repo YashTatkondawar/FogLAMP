@@ -8,7 +8,7 @@
 .. _OMF: https://omf-docs.readthedocs.io/en/v1.1/
 
 ***********************
-KERBEROS authentication
+Kerberos authentication
 ***********************
 
 Introduction
