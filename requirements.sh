@@ -25,84 +25,83 @@ set -e
 # Upgrades curl to the version related to FogLAMP
 curl_upgrade(){
 
-	if [ -d "${pkg_path}" ]; then
-		rm -rf "${pkg_path}"
-	fi
 
-	echo "Pulling curl from the FogLAMP curl repository ..."
-	cd /tmp/
+    if [ -d "${curl_tmp_path}" ]; then
+        rm -rf "${curl_tmp_path}"
+    fi
 
-	git clone https://github.com/foglamp/foglamp-curl-pkg.git
-	cd "${pkg_path}"
-	git checkout ${curl_branch}
-	git status
-	cd "${curl_path}"
+    echo "Pulling curl from the FogLAMP curl repository ..."
+    cd /tmp/
 
-	# curl in RHEL/CentOS is installed in /bin/curl and
-	# curl installs by default in /usr/local,
-	# so we select the proper target directories
-	echo "Building curl ..."
-	./buildconf && \
-	./configure --with-ssl --with-gssapi  --includedir=/usr/include --libdir=/usr/lib64 --bindir=/usr/bin && \
-	make && \
-	make install
+    curl -s -L -O "${curl_url}" && \
+    unzip -q "${curl_filename}"
+
+    cd "${curl_tmp_path}"
+
+    # curl in RHEL/CentOS is installed in /bin/curl
+    # but curl installs by default in /usr/local,
+    # so we select the proper target directories
+    echo "Building curl ..."
+    ./buildconf && \
+    ./configure --with-ssl --with-gssapi  --includedir=/usr/include --libdir=/usr/lib64 --bindir=/usr/bin && \
+    make && \
+    make install
 }
 
 # Check if the curl version related to FogLAMP has been installed
 curl_version_check () {
 
-	set +e
+    set +e
 
-	curl_version=$(curl -V | head -n 1)
-	curl_default=$(echo "${curl_version}" | grep -c "${curl_foglamp_version}")
+    curl_version=$(curl -V | head -n 1)
+    curl_version_check=$(echo "${curl_version}" | grep -c "${curl_foglamp_version}")
 
-	if (( $curl_default >= 1 )); then
-		echo "curl version ${curl_foglamp_version} installed."
-	else
-		echo "WARNING: curl version ${curl_foglamp_version} not installed, current version :${curl_version}:"
-	fi
+    if (( $curl_version_check >= 1 )); then
+        echo "curl version ${curl_foglamp_version} installed."
+    else
+        echo "WARNING: curl version ${curl_foglamp_version} not installed, current version :${curl_version}:"
+    fi
 
-	set -e
+    set -e
 }
 
 # Evaluates the current version of curl and upgrades it if needed
 curl_upgrade_evaluates(){
 
-	set +e
-	curl_version=$(curl -V | head -n 1)
-	curl_default=$(echo "${curl_version}" | grep -c "${curl_default_version}")
-	set -e
+    set +e
+    curl_version=$(curl -V | head -n 1)
+    curl_version_check=$(echo "${curl_version}" | grep -c "${curl_rhel_version}")
+    set -e
 
-	# Evaluates if the curl is the default one and so it needs to be upgraded
-	if (( $curl_default >= 1 )); then
+    # Evaluates if the curl is the default one and so it needs to be upgraded
+    if (( $curl_version_check >= 1 )); then
 
-		echo "curl version ${curl_default_version} detected, the standard RHEL/CentOS, upgrading to ${curl_foglamp_version}"
-		curl_upgrade
+        echo "curl version ${curl_rhel_version} detected, the standard RHEL/CentOS, upgrading to ${curl_foglamp_version}"
+        curl_upgrade
 
-		curl_version_check
-	else
-		echo "A curl version different from the default ${curl_default_version} detected, upgrade to a newer one if FogLAMP make fails."
-		echo "version detected :${curl_version}:"
+        curl_version_check
+    else
+        echo "A curl version different from the default ${curl_rhel_version} detected, upgrade to a newer one if FogLAMP make fails."
+        echo "version detected :${curl_version}:"
 
-		# Evaluates if the installed version support Kerberos
-		curl_kerberos=$(curl -V | grep -ic "Kerberos")
-		curl_gssapi=$(curl -V | grep -ic "GSS-API")
+        # Evaluates if the installed version support Kerberos
+        curl_kerberos=$(curl -V | grep -ic "Kerberos")
+        curl_gssapi=$(curl -V | grep -ic "GSS-API")
 
-		if [[ $curl_kerberos == 0 || curl_gssapi == 0 ]]; then
+        if [[ $curl_kerberos == 0 || curl_gssapi == 0 ]]; then
 
-			echo "WARNING : the curl version detected doesn't support Kerberos."
-		fi
-	fi
+            echo "WARNING : the curl version detected doesn't support Kerberos."
+        fi
+    fi
 
 }
 
-# Variables for curl upgrade
-pkg_path=/tmp/foglamp-curl-pkg
-curl_path=curl
-curl_foglamp_version=7.65.3
-# FIXME_I
-curl_branch=FOGL-2947
-curl_default_version=7.29
+# Variables for curl upgrade, if needed
+curl_filename="curl-7.65.3"
+curl_url="https://github.com/curl/curl/releases/download/curl-7_65_3/${curl_filename}.zip"
+curl_tmp_path="/tmp/${curl_filename}"
+curl_foglamp_version="7.65.3"
+curl_rhel_version="7.29"
 
 foglamp_location=`pwd`
 os_name=`(grep -o '^NAME=.*' /etc/os-release | cut -f2 -d\" | sed 's/"//g')`
