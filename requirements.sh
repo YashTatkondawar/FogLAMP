@@ -45,7 +45,7 @@ curl_upgrade(){
 	./buildconf && \
 	./configure --with-ssl --with-gssapi  --includedir=/usr/include --libdir=/usr/lib64 --bindir=/usr/bin && \
 	make && \
-	sudo make install
+	make install
 }
 
 # Check if the curl version related to FogLAMP has been installed
