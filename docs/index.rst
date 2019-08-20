@@ -18,4 +18,5 @@ Welcome to FogLAMP's documentation!
     92_downloads
     RASPBIAN
     REDHAT
+    KERBEROS
 
