@@ -48,8 +48,11 @@ FogLAMP server configuration
 The server on which FogLAMP is going to be executed need to be properly configured to allow the Kerberos authentication.
 
 The following steps are needed:
+
 - *Kerberos client configuration*
+
 - *IP Address resolution of the KDC*
+
 - *Kerberos keytab file*
 
 IP Address resolution of the KDC
