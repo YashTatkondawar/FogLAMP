@@ -626,7 +626,7 @@ void notification_plugin_reconfigure_fn(PLUGIN_HANDLE handle,
 			Logger::getLogger()->error("plugin_handle: plugin_reconfigure(): "
 						   "got object type '%s' instead of Python Dict, "
 						   "python plugin=%p, plugin '%s'",
-						   Py_TYPE(pReturn)->tp_name
+						   Py_TYPE(pReturn)->tp_name,
 						   handle,
 						   gPluginName.c_str());
 		}
