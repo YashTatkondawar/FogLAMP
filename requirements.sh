@@ -39,10 +39,11 @@ curl_upgrade(){
 	cd "${curl_path}"
 
 	# curl in RHEL/CentOS is installed in /bin/curl and
-	# curl installs by default in /usr/local, so the --prefix=/usr is used
+	# curl installs by default in /usr/local,
+	# so we select the proper target directories
 	echo "Building curl ..."
 	./buildconf && \
-	./configure --with-ssl --with-gssapi --prefix=/ && \
+	./configure --with-ssl --with-gssapi  --includedir=/usr/include --libdir=/usr/lib64 --bindir=/usr/bin && \
 	make && \
 	sudo make install
 }
