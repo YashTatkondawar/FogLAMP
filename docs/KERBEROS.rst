@@ -14,7 +14,8 @@ Kerberos authentication
 Introduction
 ============
 FogLAMP implements, through his North plugin PI_server,  Basic and Kerberos authentication, these are especially relevant for the integration with PI Web API using `OMF`_.
-The *requirements.sh* installs the Kerberos client to allow the integration with what in the specific terminology is called KDC.
+
+The *requirements.sh* script installs the Kerberos client to allow the integration with what in the specific terminology is called KDC.
 
 North plugin
 ============
@@ -24,7 +25,7 @@ The North plugin supports the configurable option *PIServerEndpoint* for allowin
 	PI Web API
 	Auto Discovery
 
-'Auto Discovery' will let the North plugin to evaluate if the provided URL is related to an either *Connector Relay* or *PI Web API* endpoint.
+*Auto Discovery* will let the North plugin to evaluate if the provided URL is related to an either *Connector Relay* or *PI Web API* endpoint.
 
 the *PIWebAPIAuthenticationMethod* permits to select the desired authentination among:
 ::
