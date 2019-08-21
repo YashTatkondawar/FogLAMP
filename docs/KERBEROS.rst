@@ -13,12 +13,21 @@ Kerberos authentication
 
 Introduction
 ============
-FogLAMP implements, through his North plugin PI_server,  Basic and Kerberos authentication, these are especially relevant for the integration with PI Web API using `OMF`_.
+FogLAMP implements, through his North plugin PI_server,  Basic and Kerberos authentication, the latter is especially relevant for the integration with PI Web API using `OMF`_.
 
-The *requirements.sh* script installs the Kerberos client to allow the integration with what in the specific terminology is called KDC.
+The *requirements.sh* script installs the Kerberos client to allow the integration with what in the specific terminology is called KDC (the Kerberos server).
 
-North plugin
-============
+PI-Server as the North endpoint
+===============================
+The OSI *Connector Relay* allows token authentication while *PI Web API* supports Basic and Kerberos.
+
+There could be more than one configuration to allow the Kerberos authentication,
+the easiest one is the Windows server on which the PI-Server is executed act as the Kerberos server also.
+
+The Windows Active directory should be installed and properly configured for allowing the Windows server to authenticate Kerberos requests.
+
+FogLAMP North plugin
+====================
 The North plugin supports the configurable option *PIServerEndpoint* for allowing to select the target among:
 ::
 	Connector Relay
@@ -27,7 +36,7 @@ The North plugin supports the configurable option *PIServerEndpoint* for allowin
 
 *Auto Discovery* will let the North plugin to evaluate if the provided URL is related to an either *Connector Relay* or *PI Web API* endpoint.
 
-the *PIWebAPIAuthenticationMethod* permits to select the desired authentination among:
+the *PIWebAPIAuthenticationMethod* option permits to select the desired authentication among:
 ::
 	anonymous
 	basic
@@ -40,55 +49,66 @@ directory:
 
 **NOTE:**
 
-- *A keytab is a file containing pairs of Kerberos principals and encrypted keys (which are derived from the Kerberos password). A keytab file allow to authenticate to various remote systems using Kerberos without entering a password.*
+- *A keytab is a file containing pairs of Kerberos principals and encrypted keys (which are derived from the Kerberos password). A keytab file allows to authenticate to various remote systems using Kerberos without entering a password.*
 
 
 FogLAMP server configuration
 ============================
-The server on which FogLAMP is going to be executed need to be properly configured to allow the Kerberos authentication.
+The server on which FogLAMP is going to be executed needs to be properly configured to allow the Kerberos authentication.
 
 The following steps are needed:
 
+- *IP Address resolution for the KDC*
+
 - *Kerberos client configuration*
 
-- *IP Address resolution of the KDC*
-
-- *Kerberos keytab file*
+- *Kerberos keytab file setup*
 
 IP Address resolution of the KDC
 --------------------------------
-tbd:
+The Kerberos server name should be resolved to the corresponding IP Address, editing the */etc/hosts* is one of the possible and the easiest way, sample row to add:
 ::
-	sudo bash -c "cat >> /etc/hosts" << 'EOT'
-	192.168.1.51    win-4m7odkb0rh2.dianomic.com win-4m7odkb0rh2
-	EOT
+	192.168.1.51    pi-server.dianomic.com pi-server
 
-test:
+try the resolution of the name using the usual *ping* command:
 ::
-	ping -c 1 win-4m7odkb0rh2.dianomic.com
+	$ ping -c 1 pi-server.dianomic.com
+
+	PING pi-server.dianomic.com (192.168.1.51) 56(84) bytes of data.
+	64 bytes from pi-server.dianomic.com (192.168.1.51): icmp_seq=1 ttl=128 time=0.317 ms
+	64 bytes from pi-server.dianomic.com (192.168.1.51): icmp_seq=2 ttl=128 time=0.360 ms
+	64 bytes from pi-server.dianomic.com (192.168.1.51): icmp_seq=3 ttl=128 time=0.455 ms
 
 Kerberos client configuration
 -----------------------------
-tbd:
+The server on which FogLAMP runs act like a Kerberos client and the configuration file should be edited for allowing the proper Kerberos server identification.
+The information should be added into the */etc/krb5.conf* file in the corresponding section, a sample:
 ::
-	sudo vi /etc/krb5.conf
-
 	[libdefaults]
-	    default_realm = DIANOMIC.COM
+		default_realm = DIANOMIC.COM
 
 	[realms]
 	    DIANOMIC.COM = {
-	        kdc = win-4m7odkb0rh2.dianomic.com
-	        admin_server = win-4m7odkb0rh2.dianomic.com
+	        kdc = pi-server.dianomic.com
+	        admin_server = pi-server.dianomic.com
 	    }
-
-#
-#
 
 Kerberos keytab file
 --------------------
-*PIWebAPIKerberosKeytabFileName* option
-${FOGLAMP_ROOT}/data/etc/kerberos
+The keytab file should be generated on the Kerberos server and copied into the FogLAMP server in the directory:
+::
+	${FOGLAMP_ROOT}/data/etc/kerberos
+
+The name of the file should match the value of the North plugin option *PIWebAPIKerberosKeytabFileName*, by default *piwebapi_kerberos_https.keytab*
+
+The way the keytab file is generated depends on the type of the Kerberos server, in the case of Windows Active Directory this is an sample command:
+::
+
+	ktpass -princ HTTPS/pi-server@DIANOMIC.COM -mapuser Administrator@DIANOMIC.COM -pass FogLamp200 -crypto AES256-SHA1 -ptype KRB5_NT_PRINCIPAL -out C:\Temp\piwebapi_kerberos_https.keytab
+
+
+
+
 
 tbd:
 ::
@@ -96,6 +116,11 @@ tbd:
 	-rwxrwxrwx 1 foglamp foglamp  91 Jul 17 09:07 piwebapi_kerberos_https.keytab
 
 	-rw-rw-r-- 1 foglamp foglamp 199 Aug 13 15:30 README.rst
+
+
+**NOTE:**
+
+
 
 
 Kerberos authentication on Raspbian/Ubuntu

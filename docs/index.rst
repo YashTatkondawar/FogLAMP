@@ -19,4 +19,3 @@ Welcome to FogLAMP's documentation!
     RASPBIAN
     REDHAT
     KERBEROS
-
