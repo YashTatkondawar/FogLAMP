@@ -26,7 +26,9 @@ class SimpleHttps: public HttpSender
 		 */
 		SimpleHttps(const std::string& host_port,
 			    unsigned int connect_timeout = 0,
-			    unsigned int request_timeout = 0);
+			    unsigned int request_timeout = 0,
+			    unsigned int retry_sleep_Time = 1,
+			    unsigned int max_retry = 4);
 
 		// Destructor
 		~SimpleHttps();
@@ -39,7 +41,10 @@ class SimpleHttps: public HttpSender
 				const std::vector<std::pair<std::string, std::string>>& headers = {},
 				const std::string& payload = std::string());
 
-                std::string getHostPort() { return m_host_port; };
+                void setAuthMethod          (std::string& authMethod)           {m_authMethod = authMethod; }
+    		void setAuthBasicCredentials(std::string& authBasicCredentials) {m_authBasicCredentials = authBasicCredentials; }
+
+    		std::string getHostPort() { return m_host_port; };
 	private:
 		// Make private the copy constructor and operator=
 		SimpleHttps(const SimpleHttps&);
@@ -47,7 +52,11 @@ class SimpleHttps: public HttpSender
 	private:
 		std::string	m_host_port;
 		HttpsClient	*m_sender;
-		
+    		unsigned int	m_retry_sleep_time;       // Seconds between each retry
+    		unsigned int	m_max_retry;              // Max number of retries in the communication
+
+    		std::string	m_authMethod;             // Authentication method to be used
+    		std::string	m_authBasicCredentials;   // Credentials is the base64 encoding of id and password joined by a single colon (:)
 };
 
 #endif

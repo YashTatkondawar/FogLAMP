@@ -33,10 +33,12 @@ MESSAGES_LIST = {
     "e000021": "cannot complete the preparation of the in memory structure.",
     "e000022": "unable to extend the memory structure with new data.",
     "e000023": "cannot prepare sensor information for the destination - error details |{0}|",
-    "e000024": "an error occurred during the request to the destination - error details |{0}|",
+    "e000024": "an error occurred during the request to the destination - server address |{0}| - error details |{1}|",
 
     "e000030": "cannot update the reached position.",
     "e000031": "cannot complete the sending operation - error details |{0}|",
+    "e000032": "an error occurred during the request to the destination, the error is considered not blocking "
+               "- status code |{0}| - error details |{1}|",
 }
 
 
@@ -76,30 +78,33 @@ def evaluate_type(value):
      Raises:
      """
 
-    try:
-        float(value)
-
+    if type(value) is list:
+        evaluated_type = "array"
+    else:
         try:
-            # Evaluates if it is a int or a number
-            if str(int(float(value))) == str(value):
+            float(value)
 
-                # Checks the case having .0 as 967.0
-                int_str = str(int(float(value)))
-                value_str = str(value)
+            try:
+                # Evaluates if it is a int or a number
+                if str(int(float(value))) == str(value):
 
-                if int_str == value_str:
-                    evaluated_type = "integer"
+                    # Checks the case having .0 as 967.0
+                    int_str = str(int(float(value)))
+                    value_str = str(value)
+
+                    if int_str == value_str:
+                        evaluated_type = "integer"
+                    else:
+                        evaluated_type = "number"
+
                 else:
                     evaluated_type = "number"
 
-            else:
-                evaluated_type = "number"
+            except ValueError:
+                evaluated_type = "string"
 
         except ValueError:
             evaluated_type = "string"
-
-    except ValueError:
-        evaluated_type = "string"
 
     return evaluated_type
 

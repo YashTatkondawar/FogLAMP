@@ -13,14 +13,22 @@
 data/etc/storage.json
 data/etc/certs/*
 data/var
-data/tmp
+data/support
+data/scripts
+data/plugins
+data/snapshots
+data/logs
 
 # SQLite3 default db location and after migration
 data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
 scripts/extras/*.db
 
 /etc/storage.json
 /etc/certs/*
+storage.json
 
 *.cert
 *.key
@@ -41,6 +49,7 @@ docs/.cache/
 /plugins
 /python_build_dir
 /services
+/tasks
 
 # Error Logs
 *.err
@@ -63,3 +72,11 @@ data/etc/backup_postgres_configuration_cache.json
 # test
 .pytest_cache
 .coverage
+
+# Async ingest pymodule
+python/async_ingest.so*
+# Filter ingest pymodule
+python/filter_ingest.so*
+
+# Python south plugins
+python/foglamp/plugins/south/*

@@ -16,11 +16,19 @@ from foglamp.services.core.api import update
 from foglamp.services.core.api import service
 from foglamp.services.core.api import certificate_store
 from foglamp.services.core.api import support
-from foglamp.services.core.api import plugin_discovery
 from foglamp.services.core.api import task
 from foglamp.services.core.api import asset_tracker
+from foglamp.services.core.api import south
+from foglamp.services.core.api import north
+from foglamp.services.core.api import filters
+from foglamp.services.core.api import notification
+from foglamp.services.core.api.plugins import install as plugins_install, discovery as plugins_discovery
+from foglamp.services.core.api.plugins import update as plugins_update
+from foglamp.services.core.api.snapshot import plugins as snapshot_plugins
+from foglamp.services.core.api.snapshot import table as snapshot_table
+from foglamp.services.core.api import package_log
 
-__author__ = "Ashish Jabble, Praveen Garg, Massimiliano Pinto"
+__author__ = "Ashish Jabble, Praveen Garg, Massimiliano Pinto, Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017-2018 OSIsoft, LLC"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
@@ -55,6 +63,8 @@ def setup(app):
     app.router.add_route('GET', '/foglamp/category', api_configuration.get_categories)
     app.router.add_route('POST', '/foglamp/category', api_configuration.create_category)
     app.router.add_route('GET', '/foglamp/category/{category_name}', api_configuration.get_category)
+    app.router.add_route('PUT', '/foglamp/category/{category_name}', api_configuration.update_configuration_item_bulk)
+    app.router.add_route('DELETE', '/foglamp/category/{category_name}', api_configuration.delete_category)
     app.router.add_route('POST', '/foglamp/category/{category_name}/children', api_configuration.create_child_category)
     app.router.add_route('GET', '/foglamp/category/{category_name}/children', api_configuration.get_child_category)
     app.router.add_route('DELETE', '/foglamp/category/{category_name}/children/{child_category}', api_configuration.delete_child_category)
@@ -63,7 +73,7 @@ def setup(app):
     app.router.add_route('PUT', '/foglamp/category/{category_name}/{config_item}', api_configuration.set_configuration_item)
     app.router.add_route('POST', '/foglamp/category/{category_name}/{config_item}', api_configuration.add_configuration_item)
     app.router.add_route('DELETE', '/foglamp/category/{category_name}/{config_item}/value', api_configuration.delete_configuration_item_value)
-
+    app.router.add_route('POST', '/foglamp/category/{category_name}/{config_item}/upload', api_configuration.upload_script)
     # Scheduler
     # Scheduled_processes - As per doc
     app.router.add_route('GET', '/foglamp/schedule/process', api_scheduler.get_scheduled_processes)
@@ -76,6 +86,10 @@ def setup(app):
     app.router.add_route('GET', '/foglamp/schedule/{schedule_id}', api_scheduler.get_schedule)
     app.router.add_route('PUT', '/foglamp/schedule/{schedule_id}/enable', api_scheduler.enable_schedule)
     app.router.add_route('PUT', '/foglamp/schedule/{schedule_id}/disable', api_scheduler.disable_schedule)
+
+    app.router.add_route('PUT', '/foglamp/schedule/enable', api_scheduler.enable_schedule_with_name)
+    app.router.add_route('PUT', '/foglamp/schedule/disable', api_scheduler.disable_schedule_with_name)
+
     app.router.add_route('POST', '/foglamp/schedule/start/{schedule_id}', api_scheduler.start_schedule)
     app.router.add_route('PUT', '/foglamp/schedule/{schedule_id}', api_scheduler.update_schedule)
     app.router.add_route('DELETE', '/foglamp/schedule/{schedule_id}', api_scheduler.delete_schedule)
@@ -90,6 +104,19 @@ def setup(app):
     # Service
     app.router.add_route('POST', '/foglamp/service', service.add_service)
     app.router.add_route('GET', '/foglamp/service', service.get_health)
+    app.router.add_route('DELETE', '/foglamp/service/{service_name}', service.delete_service)
+    app.router.add_route('GET', '/foglamp/service/available', service.get_available)
+    app.router.add_route('GET', '/foglamp/service/installed', service.get_installed)
+
+    # Task
+    app.router.add_route('POST', '/foglamp/scheduled/task', task.add_task)
+    app.router.add_route('DELETE', '/foglamp/scheduled/task/{task_name}', task.delete_task)
+
+    # South
+    app.router.add_route('GET', '/foglamp/south', south.get_south_services)
+
+    # North
+    app.router.add_route('GET', '/foglamp/north', north.get_north_schedules)
 
     # assets
     browser.setup(app)
@@ -132,11 +159,49 @@ def setup(app):
     # Get Syslog
     app.router.add_route('GET', '/foglamp/syslog', support.get_syslog_entries)
 
-    # Get Plugin
-    app.router.add_route('GET', '/foglamp/plugins/installed', plugin_discovery.get_plugins_installed)
+    # Package logs
+    app.router.add_route('GET', '/foglamp/package/log', package_log.get_logs)
+    app.router.add_route('GET', '/foglamp/package/log/{name}', package_log.get_log_by_name)
 
-    # Task
-    app.router.add_route('POST', '/foglamp/scheduled/task', task.add_task)
+    # Plugins (install, discovery, update)
+    app.router.add_route('GET', '/foglamp/plugins/installed', plugins_discovery.get_plugins_installed)
+    app.router.add_route('GET', '/foglamp/plugins/available', plugins_discovery.get_plugins_available)
+    app.router.add_route('POST', '/foglamp/plugins', plugins_install.add_plugin)
+    app.router.add_route('PUT', '/foglamp/plugins/{type}/{name}/update', plugins_update.update_plugin)
+
+    # Filters 
+    app.router.add_route('POST', '/foglamp/filter', filters.create_filter)
+    app.router.add_route('PUT', '/foglamp/filter/{user_name}/pipeline', filters.add_filters_pipeline)
+    app.router.add_route('GET', '/foglamp/filter/{user_name}/pipeline', filters.get_filter_pipeline)
+    app.router.add_route('GET', '/foglamp/filter/{filter_name}', filters.get_filter)
+    app.router.add_route('GET', '/foglamp/filter', filters.get_filters)
+    app.router.add_route('DELETE', '/foglamp/filter/{user_name}/pipeline', filters.delete_filter_pipeline)
+    app.router.add_route('DELETE', '/foglamp/filter/{filter_name}', filters.delete_filter)
+
+    # Notification
+    app.router.add_route('GET', '/foglamp/notification', notification.get_notifications)
+    app.router.add_route('GET', '/foglamp/notification/plugin', notification.get_plugin)
+    app.router.add_route('GET', '/foglamp/notification/type', notification.get_type)
+    app.router.add_route('GET', '/foglamp/notification/{notification_name}', notification.get_notification)
+    app.router.add_route('POST', '/foglamp/notification', notification.post_notification)
+    app.router.add_route('PUT', '/foglamp/notification/{notification_name}', notification.put_notification)
+    app.router.add_route('DELETE', '/foglamp/notification/{notification_name}', notification.delete_notification)
+
+    # Snapshot plugins
+    app.router.add_route('GET', '/foglamp/snapshot/plugins', snapshot_plugins.get_snapshot)
+    app.router.add_route('POST', '/foglamp/snapshot/plugins', snapshot_plugins.post_snapshot)
+    app.router.add_route('PUT', '/foglamp/snapshot/plugins/{id}', snapshot_plugins.put_snapshot)
+    app.router.add_route('DELETE', '/foglamp/snapshot/plugins/{id}', snapshot_plugins.delete_snapshot)
+
+    # Snapshot config
+    app.router.add_route('GET', '/foglamp/snapshot/category', snapshot_table.get_snapshot)
+    app.router.add_route('POST', '/foglamp/snapshot/category', snapshot_table.post_snapshot)
+    app.router.add_route('PUT', '/foglamp/snapshot/category/{id}', snapshot_table.put_snapshot)
+    app.router.add_route('DELETE', '/foglamp/snapshot/category/{id}', snapshot_table.delete_snapshot)
+    app.router.add_route('GET', '/foglamp/snapshot/schedule', snapshot_table.get_snapshot)
+    app.router.add_route('POST', '/foglamp/snapshot/schedule', snapshot_table.post_snapshot)
+    app.router.add_route('PUT', '/foglamp/snapshot/schedule/{id}', snapshot_table.put_snapshot)
+    app.router.add_route('DELETE', '/foglamp/snapshot/schedule/{id}', snapshot_table.delete_snapshot)
 
     # enable cors support
     enable_cors(app)

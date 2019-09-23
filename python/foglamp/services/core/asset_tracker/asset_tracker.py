@@ -61,7 +61,7 @@ class AssetTracker(object):
         # If (asset + event + service + plugin) row combination exists in _find_registered_asset_record then return
         d = {"asset": asset, "event": event, "service": service, "plugin": plugin}
         if d in self._registered_asset_records:
-            return
+            return {}
 
         # The name of the FogLAMP this entry has come from.
         # This is defined as the service name and configured as part of the general configuration of FogLAMP.
@@ -75,7 +75,6 @@ class AssetTracker(object):
             payload = PayloadBuilder().INSERT(asset=asset, event=event, service=service, plugin=plugin, foglamp=self.foglamp_svc_name).payload()
             result = await self._storage.insert_into_tbl('asset_tracker', payload)
             response = result['response']
-            d = {"asset": asset, "event": event, "service": service, "plugin": plugin}
             self._registered_asset_records.append(d)
         except KeyError:
             raise ValueError(result['message'])
@@ -83,4 +82,7 @@ class AssetTracker(object):
             err_response = ex.error
             raise ValueError(err_response)
         else:
-            return True
+            import copy
+            result = copy.deepcopy(d)
+            result.update({"foglamp": self.foglamp_svc_name})
+            return result

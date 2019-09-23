@@ -14,10 +14,28 @@
 #include <map>
 #include <reading.h>
 #include <http_sender.h>
+#include <zlib.h>
 
-#define OMF_TYPE_STRING  "string"
-#define OMF_TYPE_INTEGER "integer"
-#define OMF_TYPE_FLOAT   "number"
+#define TYPE_ID_DEFAULT 1
+#define FAKE_ASSET_KEY		"_default_start_id_"
+#define OMF_TYPE_STRING		"string"
+#define OMF_TYPE_INTEGER	"integer"
+#define OMF_TYPE_FLOAT		"number"
+#define OMF_TYPE_UNSUPPORTED	"unsupported"
+
+/**
+ * Per asset dataTypes
+ *
+ * typeId is a prefix for OMF data Type messages
+ * types is a JSON string with datapoint names and types
+ * This class is used in a std::map where assetName is a key
+ */
+class OMFDataTypes
+{
+        public:
+                long typeId;
+                std::string types;
+};
 
 /**
  * The OMF class.
@@ -31,7 +49,12 @@ class OMF
 		 */
 		OMF(HttpSender& sender,
                     const std::string& path,
-		    const std::string& typeId,
+		    const long typeId,
+		    const std::string& producerToken);
+
+		OMF(HttpSender& sender,
+		    const std::string& path,
+		    std::map<std::string, OMFDataTypes>& types,
 		    const std::string& producerToken);
 
 		// Destructor
@@ -56,7 +79,7 @@ class OMF
 
 		// Method with vector (by reference) of reading pointers
 		uint32_t sendToServer(const std::vector<Reading *>& readings,
-				      bool skipSentDataTypes = true);
+				      bool compression, bool skipSentDataTypes = true);
 
 		// Send a single reading (by reference)
 		uint32_t sendToServer(const Reading& reading,
@@ -69,8 +92,39 @@ class OMF
 		// Set saved OMF formats
 		void setFormatType(const std::string &key, std::string &value);
 
+    		// Set which PIServer component should be used for the communication
+    		void setPIServerEndpoint(const std::string &PIServerEndpoint);
+
+    		// Set the first level of hierarchy in Asset Framework in which the assets will be created, PI Web API only.
+    		void setAFHierarchy1Level(const std::string &AFHierarchy1Level);
+
 		// Get saved OMF formats
 		std::string getFormatType(const std::string &key) const;
+
+		// Set the list of errors considered not blocking
+		// in the communication with the PI Server
+                void setNotBlockingErrors(std::vector<std::string>& );
+
+		// Compress string using gzip
+		std::string compress_string(const std::string& str,
+                            				int compressionlevel = Z_DEFAULT_COMPRESSION);
+
+		// Return current value of global type-id
+		const long getTypeId() const { return m_typeId; };
+
+		// Check DataTypeError
+		bool isDataTypeError(const char* message);
+
+		// Map object types found in input data
+		void setMapObjectTypes(const std::vector<Reading *>& data,
+					std::map<std::string, Reading*>& dataSuperSet) const;
+		// Removed mapped object types found in input data
+		void unsetMapObjectTypes(std::map<std::string, Reading*>& dataSuperSet) const;
+
+		void setStaticData(std::vector<std::pair<std::string, std::string>> *staticData)
+		{
+			m_staticData = staticData;
+		};
 
 	private:
 		/**
@@ -78,7 +132,8 @@ class OMF
 		 * messagetype header takes the passed type value:
 		 * 'Type', 'Container', 'Data'
 		 */
-		const std::vector<std::pair<std::string, std::string>> createMessageHeader(const std::string& type) const;
+		const std::vector<std::pair<std::string, std::string>>
+			createMessageHeader(const std::string& type) const;
 
 		// Create data for Type message for current row
 		const std::string createTypeData(const Reading& reading) const;
@@ -109,7 +164,7 @@ class OMF
 				     bool skipSendingTypes);
 
 		// Send OMF data types
-		bool sendDataTypes(const Reading& row) const;
+		bool sendDataTypes(const Reading& row);
 
 		// Get saved dataType
 		bool getCreatedTypes(const std::string& key);
@@ -117,27 +172,79 @@ class OMF
 		// Set saved dataType
 		bool setCreatedTypes(const std::string& key);
 
+		// Clear data types cache
+		void clearCreatedTypes();
+
+		// Increment type-id value
+		void incrementTypeId();
+
+                // Handle data type errors
+		bool handleTypeErrors(const Reading& reading);
+
+		// Extract assetName from erro message
+		std::string getAssetNameFromError(const char* message);
+
+		// Get asset type-id from cached data
+		long getAssetTypeId(const std::string& assetName) const;
+
+		// Increment per asset type-id value
+		void incrementAssetTypeId(const std::string& assetName);
+
+		// Set global type-id as the maximum value of all per asset type-ids
+		void setTypeId();
+
+		// Set saved dataType
+		bool setCreatedTypes(const Reading& row);
+
+		// Remove cached data types enttry for given asset name
+		void clearCreatedTypes(const std::string& key);
+
+		// Add the 1st level of AF hierarchy if the end point is PI Web API
+    		bool sendAFHierarchy();
+    		bool sendAFHierarchyTypes();
+    		bool sendAFHierarchyStatic();
+    		bool AFHierarchySendMessage(const std::string& msgType, std::string& jsonData);
+
 	private:
-		const std::string		m_path;
-		const std::string		m_typeId;
-		const std::string		m_producerToken;
-		std::map<std::string, bool>	m_createdTypes;
+		const std::string	m_path;
+		long			m_typeId;
+		const std::string	m_producerToken;
+    		std::string		m_PIServerEndpoint;
+    		std::string		m_AFHierarchy1Level;
 
 		// Define the OMF format to use for each type
 		// the format will not be applied if the string is empty
                 std::map<const std::string, std::string> m_formatTypes {
 			{OMF_TYPE_STRING, ""},
 			{OMF_TYPE_INTEGER,"int64"},
-			{OMF_TYPE_FLOAT,  "float64"}
+			{OMF_TYPE_FLOAT,  "float64"},
+			{OMF_TYPE_UNSUPPORTED,  "unsupported"}
 		};
 
     		// Vector with OMF_TYPES
 		const std::vector<std::string> omfTypes = { OMF_TYPE_STRING,
-							    OMF_TYPE_INTEGER,
-							    OMF_TYPE_FLOAT };
+							    OMF_TYPE_FLOAT,  // Forces the creation of float also for integer numbers
+							    OMF_TYPE_FLOAT,
+							    OMF_TYPE_UNSUPPORTED};
 		// HTTP Sender interface
 		HttpSender&		m_sender;
 		bool			m_lastError;
+		bool			m_changeTypeId;
+
+		// These errors are considered not blocking in the communication
+		// with the destination, the sending operation will proceed
+		// with the next block of data if one of these is encountered
+		std::vector<std::string> m_notBlockingErrors;
+
+		// Data types cache[key] = (key_type_id, key data types)
+		std::map<std::string, OMFDataTypes>*
+					m_OMFDataTypes;
+		/**
+		 * Static data to send to OMF
+		 */
+		std::vector<std::pair<std::string, std::string>>
+			*m_staticData;
+
 };
 
 /**
@@ -147,7 +254,11 @@ class OMF
 class OMFData
 {
 	public:
-		OMFData(const Reading& reading);
+		OMFData(const Reading& reading,
+			const long typeId,
+			const std::string& PIServerEndpoint = std::string(),
+			const std::string& AFHierarchy1Level = std::string());
+
 		const std::string& OMFdataVal() const;
 	private:
 		std::string	m_value;

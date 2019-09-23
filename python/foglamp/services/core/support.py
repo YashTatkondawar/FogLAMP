@@ -8,6 +8,7 @@
 """
 
 import datetime
+import platform
 import os
 from os.path import basename
 import glob
@@ -20,6 +21,8 @@ import subprocess
 from foglamp.services.core.connect import *
 from foglamp.common import logger
 from foglamp.services.core.api.service import get_service_records
+from foglamp.common.common import _FOGLAMP_ROOT, _FOGLAMP_DATA
+
 
 __author__ = "Amarendra K Sinha"
 __copyright__ = "Copyright (c) 2017 OSIsoft, LLC"
@@ -29,6 +32,10 @@ __version__ = "${VERSION}"
 _LOGGER = logger.setup(__name__)
 _NO_OF_FILES_TO_RETAIN = 3
 _SYSLOG_FILE = '/var/log/syslog'
+_PATH = _FOGLAMP_DATA if _FOGLAMP_DATA else _FOGLAMP_ROOT + '/data'
+
+if ('centos' in platform.platform()) or ('redhat' in platform.platform()):
+    _SYSLOG_FILE = '/var/log/messages'
 
 
 class SupportBuilder:
@@ -67,6 +74,8 @@ class SupportBuilder:
                 self.add_service_registry(pyz, file_spec)
                 self.add_machine_resources(pyz, file_spec)
                 self.add_psinfo(pyz, file_spec)
+                self.add_script_dir_content(pyz)
+                self.add_package_log_dir_content(pyz)
             finally:
                 pyz.close()
         except Exception as ex:
@@ -173,3 +182,18 @@ class SupportBuilder:
             "runningPythonProcesses": c
         }
         self.write_to_tar(pyz, temp_file, data)
+
+    def add_script_dir_content(self, pyz):
+        script_file_path = _PATH + '/scripts'
+        if os.path.exists(script_file_path):
+            # recursively 'true' by default and __pycache__ dir excluded
+            pyz.add(script_file_path, arcname='scripts', filter=self.exclude_pycache)
+
+    def add_package_log_dir_content(self, pyz):
+        script_package_logs_path = _PATH + '/logs'
+        if os.path.exists(script_package_logs_path):
+            # recursively 'true' by default and __pycache__ dir excluded
+            pyz.add(script_package_logs_path, arcname='package_logs', filter=self.exclude_pycache)
+
+    def exclude_pycache(self, tar_info):
+        return None if '__pycache__' in tar_info.name else tar_info

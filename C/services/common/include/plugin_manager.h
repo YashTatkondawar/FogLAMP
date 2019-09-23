@@ -3,14 +3,15 @@
 /*
  * FogLAMP storage service.
  *
- * Copyright (c) 2017 OSisoft, LLC
+ * Copyright (c) 2017, 2018 OSisoft, LLC
  *
  * Released under the Apache 2.0 Licence
  *
- * Author: Mark Riddoch
+ * Author: Mark Riddoch, Massimiliano Pinto
  */
 
 #include <plugin_api.h>
+#include <plugin_handle.h>
 #include <logger.h>
 #include <string>
 #include <list>
@@ -24,22 +25,34 @@
  */
 class PluginManager {
 	public:
-                static PluginManager *getInstance();
-        	PLUGIN_HANDLE loadPlugin(const std::string& name, const std::string& type);
-		void unloadPlugin(PLUGIN_HANDLE handle);
-    void *resolveSymbol(PLUGIN_HANDLE handle, const std::string& symbol);
-                PLUGIN_HANDLE findPluginByName(const std::string& name);
-                PLUGIN_HANDLE findPluginByType(const std::string& type);
-                PLUGIN_INFORMATION *getInfo(const PLUGIN_HANDLE);
-                static PluginManager            *instance;
+		static PluginManager *getInstance();
+		PLUGIN_HANDLE	loadPlugin(const std::string& name,
+					   const std::string& type);
+		void		unloadPlugin(PLUGIN_HANDLE handle);
+		void*		resolveSymbol(PLUGIN_HANDLE handle,
+					      const std::string& symbol);
+		PLUGIN_HANDLE	findPluginByName(const std::string& name);
+		PLUGIN_HANDLE	findPluginByType(const std::string& type);
+		PLUGIN_INFORMATION
+				*getInfo(const PLUGIN_HANDLE);
+		void		getInstalledPlugins(const std::string& type,
+						    std::list<std::string>& plugins);
+
+	public:
+                static PluginManager* instance;
 
 	private:
-                std::list<PLUGIN_HANDLE>	        plugins;
-                std::map<std::string, PLUGIN_HANDLE>      pluginNames;
-                std::map<std::string, PLUGIN_HANDLE>      pluginTypes;
-                std::map<PLUGIN_HANDLE, PLUGIN_INFORMATION *> pluginInfo;
                 PluginManager();
-                Logger      *logger;
+
+	private:
+                std::list<PLUGIN_HANDLE>		plugins;
+                std::map<std::string, PLUGIN_HANDLE>	pluginNames;
+                std::map<std::string, std::string>	pluginTypes;
+                std::map<PLUGIN_HANDLE, PLUGIN_INFORMATION *>
+							pluginInfo;
+                std::map<PLUGIN_HANDLE, PluginHandle*>
+							pluginHandleMap;
+                Logger*					logger;
 };
 
 #endif

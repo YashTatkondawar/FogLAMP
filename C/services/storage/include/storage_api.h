@@ -13,6 +13,7 @@
 #include <server_http.hpp>
 #include <storage_plugin.h>
 #include <storage_stats.h>
+#include <storage_registry.h>
 
 using namespace std;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
@@ -25,11 +26,18 @@ using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 #define READING_ACCESS  	"^/storage/reading$"
 #define READING_QUERY   	"^/storage/reading/query"
 #define READING_PURGE   	"^/storage/reading/purge"
+#define READING_INTEREST	"^/storage/reading/interest/([A-Za-z\\*][a-zA-Z0-9_]*)$"
+#define GET_TABLE_SNAPSHOTS	"^/storage/table/([A-Za-z][a-zA-Z_0-9_]*)/snapshot$"
+#define CREATE_TABLE_SNAPSHOT	GET_TABLE_SNAPSHOTS
+#define LOAD_TABLE_SNAPSHOT	"^/storage/table/([A-Za-z][a-zA-Z_0-9_]*)/snapshot/([a-zA-Z_0-9_]*)$"
+#define DELETE_TABLE_SNAPSHOT	LOAD_TABLE_SNAPSHOT
 
 #define PURGE_FLAG_RETAIN	"retain"
 #define PURGE_FLAG_PURGE	"purge"
 
 #define TABLE_NAME_COMPONENT	1
+#define ASSET_NAME_COMPONENT	1
+#define SNAPSHOT_ID_COMPONENT	2
 
 /**
  * The Storage API class - this class is responsible for the registration of all API
@@ -59,6 +67,16 @@ public:
 	void	readingFetch(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
 	void	readingQuery(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
 	void	readingPurge(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	readingRegister(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	readingUnregister(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	createTableSnapshot(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	loadTableSnapshot(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	deleteTableSnapshot(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	getTableSnapshots(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request);
+	void	printList();
+
+public:
+	std::atomic<int>        m_workers_count;
 
 private:
         static StorageApi       *m_instance;
@@ -69,6 +87,11 @@ private:
 	StoragePlugin		*plugin;
 	StoragePlugin		*readingPlugin;
 	StorageStats		stats;
+	std::map<string, pair<int,std::list<std::string>::iterator>> m_seqnum_map;
+	const unsigned int	max_entries_in_seqnum_map = 16;
+	std::list<std::string>	seqnum_map_lru_list; // has the most recently accessed elements of m_seqnum_map at front of the dequeue
+	std::mutex 		mtx_seqnum_map;
+	StorageRegistry		registry;
 	void			respond(shared_ptr<HttpServer::Response>, const string&);
 	void			respond(shared_ptr<HttpServer::Response>, SimpleWeb::StatusCode, const string&);
 	void			internalError(shared_ptr<HttpServer::Response>, const exception&);

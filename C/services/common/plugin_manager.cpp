@@ -1,20 +1,34 @@
 /*
- * FogLAMP storage service.
+ * FogLAMP plugin manager.
  *
- * Copyright (c) 2017 OSisoft, LLC
+ * Copyright (c) 2017, 2018 OSisoft, LLC
  *
  * Released under the Apache 2.0 Licence
  *
- * Author: Mark Riddoch
+ * Author: Mark Riddoch, Massimiliano Pinto
  */
-#include <plugin_manager.h>
 #include <cstdio>
 #include <dlfcn.h>
 #include <string.h>
 #include <iostream>
+#include <fstream>
 #include <unistd.h>
+#include <plugin_manager.h>
+#include <binary_plugin_handle.h>
+#include <south_python_plugin_handle.h>
+#include <notification_python_plugin_handle.h>
+#include <dirent.h>
+#include <sys/param.h>
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/error/error.h"
+#include "rapidjson/error/en.h"
+#include <algorithm>
+#include <config_category.h>
 
 using namespace std;
+using namespace rapidjson;
 
 PluginManager *PluginManager::instance = 0;
 
@@ -38,17 +52,216 @@ PluginManager::PluginManager()
   logger = Logger::getLogger();
 }
 
+enum PLUGIN_TYPE {
+	BINARY_PLUGIN,
+	PYTHON_PLUGIN,
+	JSON_PLUGIN
+};
+
+/**
+ * Update plugin info by merging the JSON plugin config over base plugin config
+ *
+ * @param    info			The plugin info structure
+ * @param    json_plugin_name		JSON plugin name
+ * @param    json_plugin_defaults	JSON plugin defaults dict
+ * @param    json_plugin_description	JSON plugin description
+ */
+void updateJsonPluginConfig(PLUGIN_INFORMATION *info, string json_plugin_name, string json_plugin_defaults, string json_plugin_description)
+{
+	Logger *logger = Logger::getLogger();
+	logger->debug("Loading base plugin for JSON plugin, so updating plugin_info structure loaded from base plugin");
+	char *nameStr = new char [json_plugin_name.length()+1];
+	std::strcpy (nameStr, json_plugin_name.c_str());
+	info->name = nameStr;
+	
+	// Update json_plugin_description in plugin->description
+	Document doc;
+	doc.Parse(json_plugin_defaults.c_str());
+	if (doc.HasParseError())
+	{
+		logger->error("doc JSON parsing failed");
+		return;
+	}
+
+	Document docBase;
+	docBase.Parse(info->config);
+	if (docBase.HasParseError())
+	{
+		logger->error("docBase JSON parsing failed");
+		return;
+	}
+
+	static const char* kTypeNames[] = { "Null", "False", "True", "Object", "Array", "String", "Number" };
+
+	DefaultConfigCategory basePluginCc("base", string(info->config));
+	logger->debug("Original basePluginCc=%s", basePluginCc.toJSON().c_str());
+		
+	// Iterate over overlay config and find same item in base config and update their default from overlay to base config
+	for (auto& m : doc.GetObject())
+	{
+		rapidjson::StringBuffer sb;
+		rapidjson::Writer<rapidjson::StringBuffer> writer( sb );
+		m.value.Accept( writer );
+		string s = sb.GetString();
+		//logger->debug("m.value.type()=%s, m.value.GetString()=%s", kTypeNames[m.value.GetType()], s.c_str());
+
+		// find item with name 'm.name.GetString()' in base config
+		if (!docBase.HasMember(m.name.GetString()))
+		{
+			logger->warn("Item with name '%s' missing from base config, ignoring it", m.name.GetString());
+			continue;
+		}
+		else
+		{
+			string baseItemValue = basePluginCc.getDefault(m.name.GetString());
+			//logger->debug("Original baseItemValue=%s", baseItemValue.c_str());
+			
+			Value::MemberIterator baseItemDefault = docBase[m.name.GetString()].FindMember("default");
+			Value::MemberIterator overlayItemDefault = m.value.FindMember("default");
+			if(baseItemDefault == docBase.MemberEnd() || overlayItemDefault == m.value.MemberEnd())
+			{
+				logger->warn("Default value for item with name %s missing from base config, ignoring it", m.name.GetString());
+				continue;
+			}
+			else
+			{
+				//logger->debug("baseItemDefault: name=%s, type=%s, value=%s", 
+				//		baseItemDefault->name.GetString(), kTypeNames[baseItemDefault->value.GetType()], baseItemDefault->value.GetString());
+				string s;
+				if (overlayItemDefault->value.IsObject())
+				{
+					rapidjson::StringBuffer sb;
+					rapidjson::Writer<rapidjson::StringBuffer> writer( sb );
+					overlayItemDefault->value.Accept( writer );
+					s = sb.GetString();
+				}
+				else if (overlayItemDefault->value.IsString())
+				{
+					s = overlayItemDefault->value.GetString();
+				}
+				else if (overlayItemDefault->value.IsDouble())
+				{
+					s = to_string(overlayItemDefault->value.GetDouble());
+				}
+				else if (overlayItemDefault->value.IsNumber())
+				{
+					s = to_string(overlayItemDefault->value.GetInt());
+				}
+				else if (overlayItemDefault->value.IsBool())
+				{
+					s = overlayItemDefault->value.GetBool() ? "true" : "false";
+				}
+				else
+				{
+					logger->error("Unable to handle overlayItemDefault: name=%s, type=%d",
+					overlayItemDefault->name.GetString(), overlayItemDefault->value.GetType());
+				}
+				//logger->debug("overlayItemDefault: name=%s, type=%s, value=%s",
+				//	overlayItemDefault->name.GetString(), kTypeNames[overlayItemDefault->value.GetType()], s.c_str());
+				
+				basePluginCc.setDefault(m.name.GetString(), s);
+				//logger->debug("Updated basePluginCc=%s", basePluginCc.toJSON().c_str());
+				//logger->printLongString(basePluginCc.itemsToJSON());
+			}
+		}
+	}
+	
+	// Update info->config
+	char *confStr = new char [basePluginCc.itemsToJSON().length()+1];
+	std::strcpy (confStr, basePluginCc.itemsToJSON().c_str());
+	info->config = confStr;
+	//logger->debug("\"defaults\" updated:");
+	//logger->printLongString(info->config);
+
+	// Update plugin name and description
+	Document doc2;
+	doc2.Parse(info->config);
+	if (doc2.HasParseError())
+	{
+		logger->error("doc2 JSON parsing failed");
+	}
+	if (doc2.HasMember("plugin"))
+	{
+		Value::MemberIterator itemValueIter = doc2["plugin"].FindMember("default");
+		//logger->debug("plugin->default=%s", itemValueIter->value.GetString());
+		itemValueIter->value.SetString(json_plugin_name.c_str(), doc2.GetAllocator());
+
+		Value::MemberIterator itemValueIter2 = doc2["plugin"].FindMember("description");
+		//logger->debug("plugin->description=%s", itemValueIter2->value.GetString());
+		itemValueIter2->value.SetString(json_plugin_description.c_str(), doc2.GetAllocator());
+	}
+	StringBuffer buf;
+	Writer<StringBuffer> writer (buf);
+	doc2.Accept (writer);
+	char *confStr2 = new char [string(buf.GetString()).length()+1];
+	std::strcpy (confStr2, buf.GetString());
+	info->config = confStr2;
+	delete[] confStr;
+	logger->debug("Fields updated based on JSON config overlay:");
+	logger->printLongString(info->config);
+}
+
+/**
+ * Find a specific plugin in the directories listed in FOGLAMP_PLUGIN_PATH
+ *
+ * @param    name		The plugin name
+ * @param    _type		The plugin type string
+ * @param    _plugin_path	Value of FOGLAMP_PLUGIN_PATH environment variable
+ * @param    type		The plugin type
+ * @return   string		The absolute path of plugin
+ */
+string findPlugin(string name, string _type, string _plugin_path, PLUGIN_TYPE type)
+{
+	if (type != BINARY_PLUGIN && type != PYTHON_PLUGIN && type != JSON_PLUGIN)
+	{
+		return "";
+	}
+	
+	stringstream plugin_path(_plugin_path);
+	string temp;
+	
+	// Tokenizing w.r.t. semicolon ';' 
+	while(getline(plugin_path, temp, ';')) 
+	{
+		string path = temp+"/"+_type+"/"+name+"/";
+		switch(type)
+		{
+			case BINARY_PLUGIN:
+				path += "lib"+name+".so";
+				break;
+			case PYTHON_PLUGIN:
+				path += name+".py";
+				break;
+			case JSON_PLUGIN:
+				path += name+".json";
+				break;
+		}
+		if (access(path.c_str(), F_OK) == 0)
+		{
+			Logger::getLogger()->debug("Found plugin @ %s", path.c_str());
+			return path;
+		}
+	}
+	Logger::getLogger()->debug("Didn't find plugin : name=%s, _type=%s, _plugin_path=%s", name.c_str(), _type.c_str(), _plugin_path.c_str());
+	return "";
+}
+
 /**
  * Load a given plugin
  */
-PLUGIN_HANDLE PluginManager::loadPlugin(const string& name, const string& type)
+PLUGIN_HANDLE PluginManager::loadPlugin(const string& _name, const string& type)
 {
-PLUGIN_HANDLE hndl = NULL;
-char          buf[128];
+PluginHandle *pluginHandle = NULL;
+PLUGIN_HANDLE hndl;
+char		buf[MAXPATHLEN];
+
+  string json_plugin_name, json_base_plugin_name, json_plugin_defaults, json_plugin_description;
+  bool json_plugin = false;
+  string name(_name);
 
   if (pluginNames.find(name) != pluginNames.end())
   {
-    if (type.compare(pluginTypes.find(name)->first))
+    if (type.compare(pluginTypes.find(name)->second))
     {
       logger->error("Plugin %s is already loaded but not the expected type %s\n",
         name.c_str(), type.c_str());
@@ -57,50 +270,195 @@ char          buf[128];
     return pluginNames[name];
   }
 
+  const char *home = getenv("FOGLAMP_ROOT");
+  const char *plugin_path = getenv("FOGLAMP_PLUGIN_PATH");
+  string paths("");
+  if (home)
+  {
+	paths += string(home)+"/plugins";
+	paths += ";"+string(home)+"/python/foglamp/plugins";
+  }
+  if (plugin_path)
+	paths += (home ? ";" : "")+string(plugin_path);
+  
   /*
-   * Find and load the dynamic library that is the plugin
+   * Find and try to load the plugin that is described via a JSON file
    */
-  snprintf(buf, sizeof(buf), "./lib%s.so", name.c_str());
-  if (access(buf, F_OK) != 0)
+  string path = findPlugin(name, type, paths, JSON_PLUGIN);
+  strncpy(buf, path.c_str(), sizeof(buf));
+  if (buf[0] && access(buf, F_OK|R_OK) == 0)
   {
-    char *home = getenv("FOGLAMP_ROOT");
-    if (home)
-    {
-        snprintf(buf, sizeof(buf), "%s/plugins/%s/%s/lib%s.so", home, type.c_str(), name.c_str(), name.c_str());
-    }
+	// read config from JSON file
+	ifstream ifs(buf, ios::in);
+	
+    std::stringstream sstr;
+    sstr << ifs.rdbuf();
+    string json=sstr.str();
+	json.erase(remove(json.begin(), json.end(), '\t'), json.end());
+	json.erase(remove(json.begin(), json.end(), '\n'), json.end());
+	
+	// parse JSON document
+	Document doc;
+	doc.Parse(json.c_str());
+	if (doc.HasParseError())
+	{
+		Logger::getLogger()->error("Parse error for JSON plugin config in '%s': %s at %d", json.c_str(),
+			GetParseError_En(doc.GetParseError()), (unsigned)doc.GetErrorOffset());
+		return NULL;
+	}
+		
+	if (!(doc.HasMember("name") && doc["name"].IsString() &&
+		  doc.HasMember("defaults") && doc["defaults"].IsObject() &&
+		  doc.HasMember("connection") && doc["connection"].IsString()))
+	{
+		Logger::getLogger()->error("JSON config for plugin @ '%s' is missing/misconfigured, exiting...", buf);
+		return NULL;
+	}
+	
+	json_plugin_name = doc["name"].GetString();
+	json_base_plugin_name = doc["connection"].GetString();
+	
+	if (doc.HasMember("description") && doc["description"].IsString())
+		json_plugin_description = doc["description"].GetString();
+	if (doc["defaults"].IsObject()) {
+        rapidjson::StringBuffer sb;
+        rapidjson::Writer<rapidjson::StringBuffer> writer( sb );
+        doc["defaults"].Accept( writer );
+		json_plugin_defaults = sb.GetString();
+	}
+	
+	// set plugin name so that base plugin can be loaded next
+	json_plugin = true;
+	name = json_base_plugin_name;
+	logger->debug("json_plugin=%s, json_plugin_name=%s, json_base_plugin_name=%s, json_plugin_description=%s, json_plugin_defaults=%s", 
+						json_plugin?"true":"false", json_plugin_name.c_str(), json_base_plugin_name.c_str(), json_plugin_description.c_str(), json_plugin_defaults.c_str());
   }
-  if ((hndl = dlopen(buf, RTLD_LAZY)) != NULL)
+  
+  /*
+   * Find and try to load the dynamic library that is the plugin
+   */
+  path = findPlugin(name, type, paths, BINARY_PLUGIN);
+  strncpy(buf, path.c_str(), sizeof(buf));
+  if (buf[0] && access(buf, F_OK|R_OK) == 0)
   {
-    func_t infoEntry = (func_t)dlsym(hndl, "plugin_info");
-    if (infoEntry == NULL)
+	pluginHandle = new BinaryPluginHandle(name.c_str(), buf);
+	hndl = pluginHandle->getHandle();
+    if (hndl != NULL)
     {
-      // Unable to find plugin_info entry point
-      logger->error("Plugin %s does not support plugin_info entry point.\n", name.c_str());
-      dlclose(hndl);
-      return NULL;
-    }
-    PLUGIN_INFORMATION *info = (PLUGIN_INFORMATION *)(*infoEntry)();
+      func_t infoEntry = (func_t)pluginHandle->GetInfo();
+      if (infoEntry == NULL)
+      {
+        // Unable to find plugin_info entry point
+        logger->error("C plugin %s does not support plugin_info entry point.\n", name.c_str());
+        delete pluginHandle;
+        return NULL;
+      }
+      PLUGIN_INFORMATION *info = (PLUGIN_INFORMATION *)(*infoEntry)();
 
-    if (strcmp(info->type, type.c_str()) != 0)
+	  logger->debug("%s:%d: name=%s, type=%s, default config=%s", __FUNCTION__, __LINE__, info->name, info->type, info->config);
+	  
+      if (strcmp(info->type, type.c_str()) != 0)
+      {
+        // Log error, incorrect plugin type
+        logger->error("C plugin %s is not of the expected type %s, it is of type %s.\n",
+          name.c_str(), type.c_str(), info->type);
+        delete pluginHandle;
+        return NULL;
+      }
+
+	  if (json_plugin)
+	  {
+		updateJsonPluginConfig(info, json_plugin_name, json_plugin_defaults, json_plugin_description);
+	  }
+	  
+      plugins.push_back(pluginHandle);
+      pluginNames[name] = hndl;
+      pluginTypes[name] = type;
+      pluginInfo[hndl] = info;
+
+      pluginHandleMap[hndl] = pluginHandle;
+	    logger->debug("%s:%d: Added entry in pluginHandleMap={%p, %p}", __FUNCTION__, __LINE__, hndl, pluginHandle);
+    }
+    else
     {
-      // Log error, incorrect plugin type
-      logger->error("Plugin %s is not of the expected type %s, it is of type %s.\n",
-        name.c_str(), type.c_str(), info->type);
-      dlclose(hndl);
-      return NULL;
+		logger->error("PluginManager: Failed to load C plugin %s in %s: %s.",
+                    name.c_str(),
+                    buf,
+                    dlerror());
     }
-
-    plugins.push_back(hndl);
-    pluginNames[name] = hndl;
-    pluginTypes[name] = hndl;
-    pluginInfo[hndl] = info;
+    return hndl;
   }
-  else
+
+  // look for and load python plugin with given name
+  path = findPlugin(name, type, paths, PYTHON_PLUGIN);
+  strncpy(buf, path.c_str(), sizeof(buf));
+  if (buf[0] && access(buf, F_OK|R_OK) == 0)
   {
-    logger->error("PluginManager: Failed to load plugin %s.", name.c_str());
+	// is it Notification Rule Python plugin ?
+	if (type.compare("notificationRule") == 0)
+	{
+		pluginHandle = new NotificationPythonPluginHandle(name.c_str(), buf);
+	}
+	else
+	{
+		pluginHandle = new SouthPythonPluginHandle(name.c_str(), buf);
+	}
+	hndl = pluginHandle->getHandle();
+    if (hndl != NULL)
+    {
+      func_t infoEntry = (func_t)pluginHandle->GetInfo();
+      if (infoEntry == NULL)
+      {
+        // Unable to find plugin_info entry point
+        logger->error("Python plugin %s does not support plugin_info entry point.\n", name.c_str());
+        delete pluginHandle;
+        return NULL;
+      }
+      PLUGIN_INFORMATION *info = (PLUGIN_INFORMATION *)(*infoEntry)();
+      if (!info)
+      {
+        // Unable to get data from plugin_info entry point
+        logger->error("Python plugin %s cannot get data from plugin_info entry point.\n", name.c_str());
+        delete pluginHandle;
+        return NULL;
+      }
+ 
+      if (strcmp(info->type, type.c_str()) != 0)
+      {
+        // Log error, incorrect plugin type
+        logger->error("C plugin %s is not of the expected type %s, it is of type %s.\n",
+          name.c_str(), type.c_str(), info->type);
+        delete pluginHandle;
+        return NULL;
+      }
+	  if (json_plugin)
+	  {
+		updateJsonPluginConfig(info, json_plugin_name, json_plugin_defaults, json_plugin_description);
+	  }
+	  
+      plugins.push_back(pluginHandle);
+      pluginNames[name] = hndl;
+      pluginTypes[name] = type;
+      pluginInfo[hndl] = info;
+      pluginHandleMap[hndl] = pluginHandle;
+    }
+    else
+    {
+      logger->error("PluginManager: Failed to load python plugin %s in %s",
+                    name.c_str(),
+                    buf);
+    }
+    return hndl;
   }
-
-  return hndl;
+  
+  if(json_plugin) // if base plugin had been found, this function would have returned already
+  {
+  	logger->error("PluginManager: Could not load base plugin '%s' for JSON plugin '%s'", json_base_plugin_name.c_str(), json_plugin_name.c_str());
+	return NULL;
+  }
+  
+  logger->error("PluginManager: Failed to load C/python plugin '%s' ", name.c_str());
+  return NULL;
 }
 
 /**
@@ -142,7 +500,88 @@ PLUGIN_INFORMATION *PluginManager::getInfo(const PLUGIN_HANDLE handle)
 /**
  * Resolve a symbol within the plugin
  */
-void *PluginManager::resolveSymbol(PLUGIN_HANDLE handle, const string& symbol)
+PLUGIN_HANDLE PluginManager::resolveSymbol(PLUGIN_HANDLE handle, const string& symbol)
 {
-  return dlsym(handle, symbol.c_str());
+  if (pluginHandleMap.find(handle) == pluginHandleMap.end())
+  {
+  	logger->warn("%s:%d: Cannot find PLUGIN_HANDLE in pluginHandleMap: returning NULL", __FUNCTION__, __LINE__);
+    return NULL;
+  }
+  return pluginHandleMap.find(handle)->second->ResolveSymbol(symbol.c_str());
+}
+
+/**
+ * Get the installed plugins in the given plugin type
+ * subdirectory of "plugins" under FOGLAMP_ROOT
+ * Plugin type is one of:
+ * south, north, filter, notificationRule, notificationDelivery
+ *
+ * @param    type		The plugin type
+ * @param    plugins		The output plugin list name to fill	
+ */
+void PluginManager::getInstalledPlugins(const string& type,
+					list<string>& plugins)
+{
+	char *home = getenv("FOGLAMP_ROOT");
+	char *plugin_path = getenv("FOGLAMP_PLUGIN_PATH");
+	string paths("");
+	if (home)
+	{
+		// Binary C plugins
+		paths += string(home)+"/plugins";
+
+		// Python Plugins
+		paths += ";"+string(home)+"/python/foglamp/plugins";
+	}
+	if (plugin_path)
+	{
+		paths += (home?";":"")+string(plugin_path);
+	}
+
+	stringstream _paths(paths);
+	
+	string temp;
+	// Tokenize w.r.t. semicolon ';'
+	while(getline(_paths, temp, ';'))
+	{
+		struct dirent *entry;
+		DIR *dp;
+		string path = temp + "/" + type + "/";
+
+		// Open the plugins dir/type
+		dp = opendir(path.c_str());
+
+		if (!dp)
+		{
+			// Can not open specified dir path
+			char msg[128];
+			char* ret = strerror_r(errno, msg, 128);
+			logger->error("Can not access plugin directory %s: %s",
+				      path.c_str(),
+				      ret);
+			continue;
+		}
+
+		/**
+		 * Get all sub directory names in path:
+		 * path = plugins/filter/
+		 *     delta
+		 *     scale
+
+		 * Plugin filename is libdelta.so, libscale.so
+		 * Plugin name is the subdirecory name in path
+		 */
+		while ((entry = readdir(dp)))
+		{
+			if (strcmp (entry->d_name, "..") != 0 &&
+			    strcmp (entry->d_name, ".") != 0)
+			{
+				// Load plugin, given its name: the directory name
+				loadPlugin(entry->d_name, type);
+				// Add name to ouput list
+				plugins.push_back(entry->d_name);
+			}
+		}
+		closedir(dp);
+	}
 }

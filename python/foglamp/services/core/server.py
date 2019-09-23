@@ -17,6 +17,8 @@ import uuid
 from aiohttp import web
 import aiohttp
 import json
+import signal
+from datetime import datetime
 
 from foglamp.common import logger
 from foglamp.common.audit_logger import AuditLogger
@@ -25,6 +27,7 @@ from foglamp.common.configuration_manager import ConfigurationManager
 from foglamp.common.web import middleware
 from foglamp.common.storage_client.exceptions import *
 from foglamp.common.storage_client.storage_client import StorageClientAsync
+from foglamp.common.storage_client.storage_client import ReadingsStorageClientAsync
 
 from foglamp.services.core import routes as admin_routes
 from foglamp.services.core.api import configuration as conf_api
@@ -41,7 +44,8 @@ from foglamp.services.common.service_announcer import ServiceAnnouncer
 from foglamp.services.core.user_model import User
 from foglamp.common.storage_client import payload_builder
 from foglamp.services.core.asset_tracker.asset_tracker import AssetTracker
-
+from foglamp.services.core.api import asset_tracker as asset_tracker_api
+from foglamp.common.web.ssl_wrapper import SSLVerifier
 
 __author__ = "Amarendra K. Sinha, Praveen Garg, Terris Linenbach, Massimiliano Pinto"
 __copyright__ = "Copyright (c) 2017-2018 OSIsoft, LLC"
@@ -58,6 +62,53 @@ _SCRIPTS_DIR = os.path.expanduser(_FOGLAMP_ROOT + '/scripts')
 # PID dir and filename
 _FOGLAMP_PID_DIR= "/var/run"
 _FOGLAMP_PID_FILE = "foglamp.core.pid"
+
+
+SSL_PROTOCOLS = (asyncio.sslproto.SSLProtocol,)
+
+
+def ignore_aiohttp_ssl_eror(loop):
+    """Ignore aiohttp #3535 / cpython #13548 issue with SSL data after close
+
+    There is an issue in Python 3.7 up to 3.7.3 that over-reports a
+    ssl.SSLError fatal error. See GitHub issues aio-libs/aiohttp#3535 and
+    python/cpython#13548.
+
+    Given a loop, this sets up an exception handler that ignores this specific
+    exception, but passes everything else on to the previous exception handler
+    this one replaces.
+
+    Checks for fixed Python versions, disabling itself when running on 3.7.4+
+    or 3.8.
+
+    """
+    if sys.version_info >= (3, 7, 4):
+        return
+
+    orig_handler = loop.get_exception_handler()
+
+    def ignore_ssl_error(loop, context):
+        if context.get("message") in {
+            "SSL error in data received",
+            "SSL handshake failed"
+        }:
+            # validate we have the right exception, transport and protocol
+            exception = context.get('exception')
+            protocol = context.get('protocol')
+            if (
+                isinstance(exception, ssl.SSLError)
+                and exception.reason == 'SSLV3_ALERT_CERTIFICATE_UNKNOWN'
+                and isinstance(protocol, SSL_PROTOCOLS)
+            ):
+                if loop.get_debug():
+                    asyncio.log.logger.debug('Ignoring asyncio SSL SSLV3_ALERT_CERTIFICATE_UNKNOWN error')
+                return
+        if orig_handler is not None:
+            orig_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(ignore_ssl_error)
 
 
 class Server:
@@ -82,22 +133,26 @@ class Server:
         'name': {
             'description': 'Name of this FogLAMP service',
             'type': 'string',
-            'default': 'FogLAMP'
+            'default': 'FogLAMP',
+            'displayName': 'Name',
+            'order': '1'
         },
         'description': {
             'description': 'Description of this FogLAMP service',
             'type': 'string',
-            'default': 'FogLAMP administrative API'
+            'default': 'FogLAMP administrative API',
+            'displayName': 'Description',
+            'order': '2'
         }
     }
 
-    _MANAGEMENT_SERVICE = '_foglamp-manage._tcp'
+    _MANAGEMENT_SERVICE = '_foglamp-manage._tcp.local.'
     """ The management service we advertise """
 
-    _ADMIN_API_SERVICE = '_foglamp-admin._tcp'
+    _ADMIN_API_SERVICE = '_foglamp-admin._tcp.local.'
     """ The admin REST service we advertise """
 
-    _USER_API_SERVICE = '_foglamp-user._tcp'
+    _USER_API_SERVICE = '_foglamp-user._tcp.local.'
     """ The user REST service we advertise """
 
     admin_announcer = None
@@ -124,51 +179,85 @@ class Server:
     is_auth_required = False
     """ a var to decide to make authentication mandatory / optional for FogLAMP Admin/ User REST API"""
 
+    auth_method = 'any'
+
     cert_file_name = ''
     """ cert file name """
 
     _REST_API_DEFAULT_CONFIG = {
+        'enableHttp': {
+            'description': 'Enable HTTP (disable to use HTTPS)',
+            'type': 'boolean',
+            'default': 'true',
+            'displayName': 'Enable HTTP',
+            'order': '1'
+        },
         'httpPort': {
             'description': 'Port to accept HTTP connections on',
             'type': 'integer',
-            'default': '8081'
+            'default': '8081',
+            'displayName': 'HTTP Port',
+            'order': '2'
         },
         'httpsPort': {
             'description': 'Port to accept HTTPS connections on',
             'type': 'integer',
-            'default': '1995'
-        },
-        'enableHttp': {
-            'description': 'Enable HTTP (disable to use HTTPS)',
-            'type': 'boolean',
-            'default': 'true'
-        },
-        'authProviders': {
-            'description': 'Authentication providers to use for the interface (JSON array object)',
-            'type': 'JSON',
-            'default': '{"providers": ["username", "ldap"] }'
+            'default': '1995',
+            'displayName': 'HTTPS Port',
+            'order': '3'
         },
         'certificateName': {
             'description': 'Certificate file name',
             'type': 'string',
-            'default': 'foglamp'
+            'default': 'foglamp',
+            'displayName': 'Certificate Name',
+            'order': '4'
         },
         'authentication': {
-            'description': 'API Call Authentication (mandatory or optional)',
+            'description': 'API Call Authentication',
+            'type': 'enumeration',
+            'options': ['mandatory', 'optional'],
+            'default': 'optional',
+            'displayName': 'Authentication',
+            'order': '5'
+        },
+        'authMethod': {
+            'description': 'Authentication method',
+            'type': 'enumeration',
+            'options': ["any", "password", "certificate"],
+            'default': 'any',
+            'displayName': 'Authentication method',
+            'order': '6'
+        },
+        'authCertificateName': {
+            'description': 'Auth Certificate name',
             'type': 'string',
-            'default': 'optional'
+            'default': 'ca',
+            'displayName': 'Auth Certificate',
+            'order': '7'
         },
         'allowPing': {
             'description': 'Allow access to ping, regardless of the authentication required and'
                            ' authentication header',
             'type': 'boolean',
-            'default': 'true'
+            'default': 'true',
+            'displayName': 'Allow Ping',
+            'order': '8'
         },
         'passwordChange': {
             'description': 'Number of days after which passwords must be changed',
             'type': 'integer',
-            'default': '0'
-        }
+            'default': '0',
+            'displayName': 'Password Expiry Days',
+            'order': '9'
+        },
+        'authProviders': {
+            'description': 'Authentication providers to use for the interface (JSON array object)',
+            'type': 'JSON',
+            'default': '{"providers": ["username", "ldap"] }',
+            'displayName': 'Auth Providers',
+            'order': '10'
+        },
     }
 
     _start_time = time.time()
@@ -179,6 +268,9 @@ class Server:
 
     _storage_client_async = None
     """ Async Storage client to storage service """
+
+    _readings_client_async = None
+    """ Async Readings client to storage service """
 
     _configuration_manager = None
     """ Instance of configuration manager (singleton) """
@@ -194,6 +286,18 @@ class Server:
 
     _asset_tracker = None
     """ Asset tracker """
+
+    running_in_safe_mode = False
+    """ FogLAMP running in Safe mode """
+
+    _INSTALLATION_DEFAULT_CONFIG = {
+        'upgradeOnInstall': {
+            'description': 'Run upgrade prior to installing new software',
+            'type': 'boolean',
+            'default': 'false',
+            'displayName': 'Upgrade on Install'
+        }
+    }
 
     service_app, service_server, service_server_handler = None, None, None
     core_app, core_server, core_server_handler = None, None, None
@@ -273,8 +377,20 @@ class Server:
             config = cls._REST_API_DEFAULT_CONFIG
             category = 'rest_api'
 
-            await cls._configuration_manager.create_category(category, config, 'FogLAMP Admin and User REST API', True)
+            await cls._configuration_manager.create_category(category, config, 'FogLAMP Admin and User REST API', True, display_name="Admin API")
             config = await cls._configuration_manager.get_category_all_items(category)
+
+            try:
+                cls.is_auth_required = True if config['authentication']['value'] == "mandatory" else False
+            except KeyError:
+                _logger.error("error in retrieving authentication info")
+                raise
+
+            try:
+                cls.auth_method = config['authMethod']['value']
+            except KeyError:
+                _logger.error("error in retrieving authentication method info")
+                raise
 
             try:
                 cls.cert_file_name = config['certificateName']['value']
@@ -298,13 +414,6 @@ class Server:
                 _logger.error("error in parsing port value, received %s with type %s",
                               port_from_config, type(port_from_config))
                 raise
-
-            try:
-                cls.is_auth_required = True if config['authentication']['value'] == "mandatory" else False
-            except KeyError:
-                _logger.error("error in retrieving authentication info")
-                raise
-
         except Exception as ex:
             _logger.exception(str(ex))
             raise
@@ -320,7 +429,7 @@ class Server:
 
             if cls._configuration_manager is None:
                 _logger.error("No configuration manager available")
-            await cls._configuration_manager.create_category(category, config, 'FogLAMP Service', True)
+            await cls._configuration_manager.create_category(category, config, 'FogLAMP Service', True, display_name='FogLAMP Service')
             config = await cls._configuration_manager.get_category_all_items(category)
 
             try:
@@ -331,20 +440,49 @@ class Server:
                 cls._service_description = config['description']['value']
             except KeyError:
                 cls._service_description = 'FogLAMP REST Services'
+        except Exception as ex:
+            _logger.exception(str(ex))
+            raise
 
+    @classmethod
+    async def installation_config(cls):
+        """
+        Get the installation level configuration
+        """
+        try:
+            config = cls._INSTALLATION_DEFAULT_CONFIG
+            category = 'Installation'
+
+            if cls._configuration_manager is None:
+                _logger.error("No configuration manager available")
+            await cls._configuration_manager.create_category(category, config, 'Installation', True,
+                                                             display_name='Installation')
+            await cls._configuration_manager.get_category_all_items(category)
         except Exception as ex:
             _logger.exception(str(ex))
             raise
 
     @staticmethod
-    def _make_app(auth_required=True):
+    def _make_app(auth_required=True, auth_method='any'):
         """Creates the REST server
 
         :rtype: web.Application
         """
-        app = web.Application(middlewares=[middleware.error_middleware, middleware.auth_middleware])
+        mwares = [middleware.error_middleware]
+
+        # Maintain this order. Middlewares are executed in reverse order.
+        if auth_method != "any":
+            if auth_method == "certificate":
+                mwares.append(middleware.certificate_login_middleware)
+            else:  # password
+                mwares.append(middleware.password_login_middleware)
+
         if not auth_required:
-            app = web.Application(middlewares=[middleware.error_middleware, middleware.optional_auth_middleware])
+            mwares.append(middleware.optional_auth_middleware)
+        else:
+            mwares.append(middleware.auth_middleware)
+
+        app = web.Application(middlewares=mwares)
         admin_routes.setup(app)
         return app
 
@@ -374,13 +512,13 @@ class Server:
     @classmethod
     async def _start_scheduler(cls):
         """Starts the scheduler"""
-        _logger.info("start scheduler")
-        cls.scheduler = Scheduler(cls._host, cls.core_management_port)
+        _logger.info("Starting scheduler ...")
+        cls.scheduler = Scheduler(cls._host, cls.core_management_port, cls.running_in_safe_mode)
         await cls.scheduler.start()
 
     @staticmethod
     def __start_storage(host, m_port):
-        _logger.info("start storage, from directory %s", _SCRIPTS_DIR)
+        _logger.info("Start storage, from directory %s", _SCRIPTS_DIR)
         try:
             cmd_with_args = ['./services/storage', '--address={}'.format(host),
                              '--port={}'.format(m_port)]
@@ -403,6 +541,11 @@ class Server:
                 found_services = ServiceRegistry.get(name="FogLAMP Storage")
                 storage_service = found_services[0]
                 cls._storage_client_async = StorageClientAsync(cls._host, cls.core_management_port, svc=storage_service)
+            except (service_registry_exceptions.DoesNotExist, InvalidServiceInstance, StorageServiceUnavailable, Exception) as ex:
+                await asyncio.sleep(5)
+        while cls._readings_client_async is None:
+            try:
+                cls._readings_client_async = ReadingsStorageClientAsync(cls._host, cls.core_management_port, svc=storage_service)
             except (service_registry_exceptions.DoesNotExist, InvalidServiceInstance, StorageServiceUnavailable, Exception) as ex:
                 await asyncio.sleep(5)
 
@@ -497,35 +640,61 @@ class Server:
             sys.exit(1)
 
     @classmethod
+    def _reposition_streams_table(cls, loop):
+
+        _logger.info("'foglamp.readings' is stored in memory and a restarted has occurred, "
+                     "force reset of 'foglamp.streams' last_objects")
+
+        configuration = loop.run_until_complete(cls._storage_client_async.query_tbl('configuration'))
+        rows = configuration['rows']
+        if len(rows) > 0:
+            streams_id = []
+            # Identifies the sending process handling the readings table
+            for _item in rows:
+                try:
+                    if _item['value']['source']['value'] is not None:
+                        if _item['value']['source']['value'] == "readings":
+                            # Sending process in C++
+                            try:
+                                streams_id.append(_item['value']['streamId']['value'])
+                            except KeyError:
+                                # Sending process in Python
+                                try:
+                                    streams_id.append(_item['value']['stream_id']['value'])
+                                except KeyError:
+                                    pass
+                except KeyError:
+                    pass
+
+            # Reset identified rows of the streams table
+            if len(streams_id) >= 0:
+                for _stream_id in streams_id:
+                    payload = payload_builder.PayloadBuilder().SET(last_object=0, ts='now()')\
+                        .WHERE(['id', '=', _stream_id]).payload()
+                    loop.run_until_complete(cls._storage_client_async.update_tbl("streams", payload))
+
+    @classmethod
     def _check_readings_table(cls, loop):
-        total_count_payload = payload_builder.PayloadBuilder().AGGREGATE(["count", "*"]).ALIAS("aggregate", (
-                                "*", "count", "count")).payload()
-        result = loop.run_until_complete(
-            cls._storage_client_async.query_tbl_with_payload('readings', total_count_payload))
-        total_count = result['rows'][0]['count']
-
-        if (total_count == 0):
-            _logger.info("'foglamp.readings' table is empty, force reset of 'foglamp.streams' last_objects")
-
-            # Get total count of streams
-            result = loop.run_until_complete(
-                cls._storage_client_async.query_tbl_with_payload('streams', total_count_payload))
-            total_streams_count = result['rows'][0]['count']
-
-            # If streams table is non empty, then initialize it
-            if (total_streams_count != 0):
-                payload = payload_builder.PayloadBuilder().SET(last_object=0, ts='now()').payload()
-                loop.run_until_complete(cls._storage_client_async.update_tbl("streams", payload))
+        # check readings table has any row
+        select_query_payload = payload_builder.PayloadBuilder().SELECT("id").LIMIT(1).payload()
+        result = loop.run_until_complete(cls._readings_client_async.query(select_query_payload))
+        readings_row_exists = len(result['rows'])
+        if readings_row_exists == 0:
+            # check streams table has any row
+            s_result = loop.run_until_complete(cls._storage_client_async.query_tbl_with_payload('streams',
+                                                                                                select_query_payload))
+            streams_row_exists = len(s_result['rows'])
+            if streams_row_exists:
+                cls._reposition_streams_table(loop)
         else:
-            _logger.info("'foglamp.readings' has " + str(
-                total_count) + " rows, 'foglamp.streams' last_objects reset is not required")
+            _logger.info("'foglamp.readings' is not empty; 'foglamp.streams' last_objects reset is not required")
 
     @classmethod
     async def _config_parents(cls):
         # Create the parent category for all general configuration categories
         try:
             await cls._configuration_manager.create_category("General", {}, 'General', True)
-            await cls._configuration_manager.create_child_category("General", ["service", "rest_api"])
+            await cls._configuration_manager.create_child_category("General", ["service", "rest_api", "Installation"])
         except KeyError:
             _logger.error('Failed to create General parent configuration category for service')
             raise
@@ -552,8 +721,10 @@ class Server:
 
     @classmethod
     def _start_core(cls, loop=None):
-        _logger.info("start core")
-
+        if cls.running_in_safe_mode:
+            _logger.info("Starting in SAFE MODE ...")
+        else:
+            _logger.info("Starting ...")
         try:
             host = cls._host
 
@@ -568,8 +739,9 @@ class Server:
             # get storage client
             loop.run_until_complete(cls._get_storage_client())
 
-            # If readings table is empty, set last_object of all streams to 0
-            cls._check_readings_table(loop)
+            if not cls.running_in_safe_mode:
+                # If readings table is empty, set last_object of all streams to 0
+                cls._check_readings_table(loop)
 
             # obtain configuration manager and interest registry
             cls._configuration_manager = ConfigurationManager(cls._storage_client_async)
@@ -578,28 +750,49 @@ class Server:
             # start scheduler
             # see scheduler.py start def FIXME
             # scheduler on start will wait for storage service registration
+            #
+            # NOTE: In safe mode, the scheduler will be in restricted mode,
+            # and only API operations and current state will be accessible (No jobs / processes will be triggered)
+            #
             loop.run_until_complete(cls._start_scheduler())
 
             # start monitor
             loop.run_until_complete(cls._start_service_monitor())
 
             loop.run_until_complete(cls.rest_api_config())
-            cls.service_app = cls._make_app(auth_required=cls.is_auth_required)
+            cls.service_app = cls._make_app(auth_required=cls.is_auth_required, auth_method=cls.auth_method)
             # ssl context
             ssl_ctx = None
             if not cls.is_rest_server_http_enabled:
-                # ensure TLS 1.2 and SHA-256
-                # handle expiry?
-                ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
                 cert, key = cls.get_certificates()
                 _logger.info('Loading certificates %s and key %s', cert, key)
-                ssl_ctx.load_cert_chain(cert, key)
+
+                # Verification handling of a tls cert
+                with open(cert, 'r') as tls_cert_content:
+                    tls_cert = tls_cert_content.read()
+                SSLVerifier.set_user_cert(tls_cert)
+                if SSLVerifier.is_expired():
+                    msg = 'Certificate `{}` expired on {}'.format(cls.cert_file_name, SSLVerifier.get_enddate())
+                    _logger.error(msg)
+
+                    if cls.running_in_safe_mode:
+                        cls.is_rest_server_http_enabled = True
+                        # TODO: Should cls.rest_server_port be set to configured http port, as is_rest_server_http_enabled has been set to True?
+                        msg = "Running in safe mode withOUT https on port {}".format(cls.rest_server_port)
+                        _logger.info(msg)
+                    else:
+                        msg = 'Start in safe-mode to fix this problem!'
+                        _logger.warning(msg)
+                        raise SSLVerifier.VerificationError(msg)
+                else:
+                    ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                    ssl_ctx.load_cert_chain(cert, key)
 
             # Get the service data and advertise the management port of the core
             # to allow other microservices to find FogLAMP
             loop.run_until_complete(cls.service_config())
             _logger.info('Announce management API service')
-            cls.management_announcer = ServiceAnnouncer('core.{}'.format(cls._service_name), cls._MANAGEMENT_SERVICE, cls.core_management_port,
+            cls.management_announcer = ServiceAnnouncer("core-{}".format(cls._service_name), cls._MANAGEMENT_SERVICE, cls.core_management_port,
                                                         ['The FogLAMP Core REST API'])
 
             cls.service_server, cls.service_server_handler = cls._start_app(loop, cls.service_app, host, cls.rest_server_port, ssl_ctx=ssl_ctx)
@@ -616,24 +809,34 @@ class Server:
                                                    [cls._service_description])
             cls.user_announcer = ServiceAnnouncer(cls._service_name, cls._USER_API_SERVICE, service_server_port,
                                                   [cls._service_description])
+
             # register core
             # a service with 2 web server instance,
             # registering now only when service_port is ready to listen the request
             # TODO: if ssl then register with protocol https
             cls._register_core(host, cls.core_management_port, service_server_port)
 
+            # Installation category
+            loop.run_until_complete(cls.installation_config())
+
             # Create the configuration category parents
             loop.run_until_complete(cls._config_parents())
 
-            # Start asset tracker
-            loop.run_until_complete(cls._start_asset_tracker())
+            if not cls.running_in_safe_mode:
+                # Start asset tracker
+                loop.run_until_complete(cls._start_asset_tracker())
 
             # Everything is complete in the startup sequence, write the audit log entry
             cls._audit = AuditLogger(cls._storage_client_async)
-            loop.run_until_complete(cls._audit.information('START', None))
-
+            audit_msg = {"message": "Running in safe mode"} if cls.running_in_safe_mode else None
+            loop.run_until_complete(cls._audit.information('START', audit_msg))
+            if sys.version_info >= (3, 7, 1):
+                ignore_aiohttp_ssl_eror(loop)
             loop.run_forever()
-
+        except SSLVerifier.VerificationError as e:
+            sys.stderr.write('Error: ' + format(str(e)) + "\n")
+            loop.run_until_complete(cls.stop_storage())
+            sys.exit(1)
         except (OSError, RuntimeError, TimeoutError) as e:
             sys.stderr.write('Error: ' + format(str(e)) + "\n")
             sys.exit(1)
@@ -649,8 +852,14 @@ class Server:
         return core_service_id
 
     @classmethod
-    def start(cls):
+    def start(cls, is_safe_mode=False):
         """Starts FogLAMP"""
+        #
+        # is_safe_mode: When True, It prevents the start of any services or tasks other than the storage layer.
+        # Starting FogLAMP in this way would mean only the core and storage services would be running.
+        # And Scheduler will be running in restricted mode.
+        #
+        cls.running_in_safe_mode = is_safe_mode
         loop = asyncio.get_event_loop()
         cls._start_core(loop=loop)
 
@@ -658,21 +867,24 @@ class Server:
     async def _stop(cls):
         """Stops FogLAMP"""
         try:
+            # stop monitor
+            await cls.stop_service_monitor()
+
             # stop the scheduler
             await cls._stop_scheduler()
 
-            # I assume it will be by scheduler
             await cls.stop_microservices()
 
-            # stop monitor
-            await cls.stop_service_monitor()
+            # poll microservices for unregister
+            await cls.poll_microservices_unregister()
 
             # stop the REST api (exposed on service port)
             await cls.stop_rest_server()
 
             # Must write the audit log entry before we stop the storage service
             cls._audit = AuditLogger(cls._storage_client_async)
-            await cls._audit.information('FSTOP', None)
+            audit_msg = {"message": "Exited from safe mode"} if cls.running_in_safe_mode else None
+            await cls._audit.information('FSTOP', audit_msg)
 
             # stop storage
             await cls.stop_storage()
@@ -747,7 +959,6 @@ class Server:
         """ request service's shutdown """
         management_api_url = 'http://{}:{}/foglamp/service/shutdown'.format(svc._address, svc._management_port)
         # TODO: need to set http / https based on service protocol
-        _logger.info("Shutting down the %s service %s ...", svc._type, svc._name)
         headers = {'content-type': 'application/json'}
         async with aiohttp.ClientSession() as session:
             async with session.post(management_api_url, data=None, headers=headers) as resp:
@@ -762,9 +973,51 @@ class Server:
                 try:
                     response = json.loads(result)
                     response['message']
-                    _logger.info("Successfully shut down the %s service %s.", svc._type, svc._name)
+                    _logger.info("Shutdown scheduled for %s service %s. %s", svc._type, svc._name, response['message'])
                 except KeyError:
                     raise
+
+    @classmethod
+    async def poll_microservices_unregister(cls):
+        """ poll microservice shutdown endpoint for non core micro-services"""
+
+        def get_process_id(name):
+            """Return process ids found by (partial) name or regex."""
+            child = subprocess.Popen(['pgrep', '-f', 'name={}'.format(name)], stdout=subprocess.PIPE, shell=False)
+            response = child.communicate()[0]
+            return [int(pid) for pid in response.split()]
+
+        try:
+            shutdown_threshold = 0
+            found_services = ServiceRegistry.get()
+            _service_shutdown_threshold = 5 * (len(found_services) - 2)
+            while True:
+                services_to_stop = list()
+                for fs in found_services:
+                    if fs._name in ("FogLAMP Storage", "FogLAMP Core"):
+                        continue
+                    if fs._status not in [ServiceRecord.Status.Running, ServiceRecord.Status.Unresponsive]:
+                        continue
+                    services_to_stop.append(fs)
+                if len(services_to_stop) == 0:
+                    _logger.info("All microservices, except Core and Storage, have been shutdown.")
+                    return
+                if shutdown_threshold > _service_shutdown_threshold:
+                    for fs in services_to_stop:
+                        pids = get_process_id(fs._name)
+                        for pid in pids:
+                            _logger.error("Microservice:%s status: %s has NOT been shutdown. Killing it...", fs._name, fs._status)
+                            os.kill(pid, signal.SIGKILL)
+                            _logger.info("KILLED Microservice:%s...", fs._name)
+                    return
+                await asyncio.sleep(2)
+                shutdown_threshold += 2
+                found_services = ServiceRegistry.get()
+
+        except service_registry_exceptions.DoesNotExist:
+            pass
+        except Exception as ex:
+            _logger.exception(str(ex))
 
     @classmethod
     async def _stop_scheduler(cls):
@@ -779,7 +1032,7 @@ class Server:
         """ health check
         """
         since_started = time.time() - cls._start_time
-        return web.json_response({'uptime': since_started})
+        return web.json_response({'uptime': int(since_started)})
 
     @classmethod
     async def register(cls, request):
@@ -946,7 +1199,7 @@ class Server:
         except TimeoutError as err:
             raise web.HTTPInternalServerError(reason=str(err))
         except Exception as ex:
-            raise web.HTTPException(reason=str(ex))
+            raise web.HTTPInternalServerError(reason=str(ex))
 
     @classmethod
     async def restart(cls, request):
@@ -958,6 +1211,10 @@ class Server:
             await asyncio.sleep(2.0, loop=loop)
             _logger.info("Stopping the FogLAMP Core event loop. Good Bye!")
             loop.stop()
+            
+            if 'safe-mode' in sys.argv:
+                sys.argv.remove('safe-mode')
+                sys.argv.append('')
 
             python3 = sys.executable
             os.execl(python3, python3, *sys.argv)
@@ -967,7 +1224,7 @@ class Server:
         except TimeoutError as err:
             raise web.HTTPInternalServerError(reason=str(err))
         except Exception as ex:
-            raise web.HTTPException(reason=str(ex))
+            raise web.HTTPInternalServerError(reason=str(ex))
 
     @classmethod
     async def register_interest(cls, request):
@@ -1082,22 +1339,26 @@ class Server:
 
         return web.json_response({"interests": interests})
 
-    # change and track are empty methods required for mgt_route binding only
     @classmethod
     async def change(cls, request):
         pass
 
     @classmethod
-    async def track(cls, request):
+    async def get_track(cls, request):
+        res = await asset_tracker_api.get_asset_tracker_events(request)
+        return res
+
+    @classmethod
+    async def add_track(cls, request):
         data = await request.json()
         if not isinstance(data, dict):
             raise ValueError('Data payload must be a dictionary')
 
         try:
             result = await cls._asset_tracker.add_asset_record(asset=data.get("asset"),
-                                                          plugin=data.get("plugin"),
-                                                          service=data.get("service"),
-                                                          event=data.get("event"))
+                                                               plugin=data.get("plugin"),
+                                                               service=data.get("service"),
+                                                               event=data.get("event"))
         except (TypeError, StorageServerError) as ex:
             raise web.HTTPBadRequest(reason=str(ex))
         except ValueError as ex:
@@ -1114,7 +1375,13 @@ class Server:
 
     @classmethod
     async def create_configuration_category(cls, request):
+        request.is_core_mgt = True
         res = await conf_api.create_category(request)
+        return res
+
+    @classmethod
+    async def delete_configuration_category(cls, request):
+        res = await conf_api.delete_category(request)
         return res
 
     @classmethod
@@ -1123,21 +1390,63 @@ class Server:
         return res
 
     @classmethod
+    async def get_child_category(cls, request):
+        res = await conf_api.get_child_category(request)
+        return res
+
+    @classmethod
     async def get_configuration_category(cls, request):
+        request.is_core_mgt = True
         res = await conf_api.get_category(request)
         return res
 
     @classmethod
     async def get_configuration_item(cls, request):
+        request.is_core_mgt = True
         res = await conf_api.get_category_item(request)
         return res
 
     @classmethod
     async def update_configuration_item(cls, request):
-        res =await conf_api.set_configuration_item(request)
+        request.is_core_mgt = True
+        res = await conf_api.set_configuration_item(request)
         return res
 
     @classmethod
     async def delete_configuration_item(cls, request):
+        request.is_core_mgt = True
         res = await conf_api.delete_configuration_item_value(request)
         return res
+
+    @classmethod
+    async def add_audit(cls, request):
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise ValueError('Data payload must be a dictionary')
+
+        try:
+            code=data.get("source")
+            level=data.get("severity")
+            message=data.get("details")
+
+            # Add audit entry code and message for the given level
+            await getattr(cls._audit, str(level).lower())(code, message)
+
+            # Set timestamp for return message
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+            # Return JSON message
+            message = {'timestamp': str(timestamp),
+                       'source': code,
+                       'severity': level,
+                       'details': message 
+                      }
+
+        except (TypeError, StorageServerError) as ex:
+            raise web.HTTPBadRequest(reason=str(ex))
+        except ValueError as ex:
+            raise web.HTTPNotFound(reason=str(ex))
+        except Exception as ex:
+            raise web.HTTPInternalServerError(reason=ex)
+
+        return web.json_response(message)

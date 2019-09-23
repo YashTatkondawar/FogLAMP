@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS foglamp.readings (
                                                                    -- assets table.
     read_key   uuid                        UNIQUE,                 -- An optional unique key used to avoid double-loading.
     reading    JSON                        NOT NULL DEFAULT '{}',  -- The json object received
-    user_ts    DATETIME DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW', 'localtime')),
-    ts         DATETIME DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW', 'localtime'))
+    user_ts    DATETIME DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), -- UTC time
+    ts         DATETIME DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW'))  -- UTC time
 );
 
 -- CREATE INDEX fki_readings_fk1
@@ -40,7 +40,8 @@ delete from foglamp.configuration;
 
 CREATE TABLE IF NOT EXISTS foglamp.configuration (
        key         character varying(255)      NOT NULL, -- Primary key
-       description character varying(255)      NOT NULL,                              -- Description, in plain text
+       display_name character varying(255)     NOT NULL, -- Display Name
+       description character varying(255)      NOT NULL, -- Description, in plain text
        value       JSON                       NOT NULL DEFAULT '{}',          -- JSON object containing the configuration values
        ts          DATETIME DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW', 'localtime')),          -- Timestamp, updated at every change
        CONSTRAINT configuration_pkey PRIMARY KEY (key) );

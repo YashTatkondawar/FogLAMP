@@ -24,7 +24,7 @@ import foglamp.plugins.north.common.common as plugin_common
 import foglamp.plugins.north.common.exceptions as plugin_exceptions
 from foglamp.common import logger
 
-import foglamp.plugins.north.omf.omf as omf
+import foglamp.plugins.north.pi_server.pi_server as pi_server
 
 # Module information
 __author__ = "Stefano Simonelli"
@@ -46,7 +46,6 @@ _logger = None
 _log_debug_level = 0
 _log_performance = False
 _stream_id = None
-_destination_id = None
 
 _MODULE_NAME = "ocs_north"
 
@@ -96,58 +95,39 @@ _CONFIG_CATEGORY_DESCRIPTION = 'Configuration of OCS North plugin'
 #
 _CONFIG_DEFAULT_OMF = {
     'plugin': {
-        'description': 'OCS North Plugin',
+        'description': 'OCS (OSIsoft Cloud Services) North Plugin',
         'type': 'string',
-        'default': 'ocs'
+        'default': 'ocs',
+        'readonly': 'true'
     },
     "URL": {
-        "description": "The URL of OCS (OSIsoft Cloud Services) ",
+        "description": "The URL of OCS (OSIsoft Cloud Services),  TENANT_ID_PLACEHOLDER and NAMESPACE_ID_PLACEHOLDER, if present, will be replaced with the values of tenant_id and namespace parameters ",
         "type": "string",
-        "default": "https://dat-a.osisoft.com/api/omf"
+        "default": "https://dat-a.osisoft.com/api/tenants/TENANT_ID_PLACEHOLDER/namespaces/NAMESPACE_ID_PLACEHOLDER/omf",
+        "order": "1",
+        "displayName": "URL"
     },
     "producerToken": {
         "description": "The producer token used to authenticate as a valid publisher and "
                        "required to ingest data into OCS using OMF.",
         "type": "string",
-        "default": "ocs_north_0001"
+        "default": "ocs_north_0001",
+        "order": "2",
+        "displayName": "Producer Token"
     },
-    "namespace": {
-        "description": "Specifies the OCS namespace where the information are stored and "
-                       "it is used for the interaction with the OCS API.",
-        "type": "string",
-        "default": "ocs_namespace_0001"
+    "source": {
+        "description": "Source of data to be sent on the stream.",
+        "type": "enumeration",
+        "default": "readings",
+        "options": ["readings"],
+        "order": "3",
+        "displayName": "Data Source"
     },
-    "tenant_id": {
-      "description": "Tenant id associated to the specific OCS account.",
-      "type": "string",
-      "default": "ocs_tenant_id"
-    },
-    "client_id": {
-      "description": "Client id associated to the specific OCS account, "
-                     "it is used to authenticate the source for using the OCS API.",
-      "type": "string",
-      "default": "ocs_client_id"
-    },
-    "client_secret": {
-      "description": "Client secret associated to the specific OCS account, "
-                     "it is used to authenticate the source for using the OCS API.",
-      "type": "string",
-      "default": "ocs_client_secret"
-    },
-    "OMFMaxRetry": {
-        "description": "Max number of retries for the communication with the OMF PI Connector Relay",
-        "type": "integer",
-        "default": "5"
-    },
-    "OMFRetrySleepTime": {
-        "description": "Seconds between each retry for the communication with the OMF PI Connector Relay",
-        "type": "integer",
-        "default": "1"
-    },
-    "OMFHttpTimeout": {
-        "description": "Timeout in seconds for the HTTP operations with the OMF PI Connector Relay",
-        "type": "integer",
-        "default": "30"
+    "compression": {
+        "description": "Compress message body",
+        "type": "boolean",
+        "default": "false",
+        "displayName": "Compression"
     },
     "StaticData": {
         "description": "Static data to include in each sensor reading sent to OMF.",
@@ -157,37 +137,111 @@ _CONFIG_DEFAULT_OMF = {
                 "Location": "Palo Alto",
                 "Company": "Dianomic"
             }
-        )
+        ),
+        "order": "4",
+        "displayName": "Static Data"
     },
     "applyFilter": {
         "description": "Whether to apply filter before processing the data",
         "type": "boolean",
-        "default": "False"
+        "default": "False",
+        "order": "5",
+        "displayName": "Apply Filter"
     },
     "filterRule": {
         "description": "JQ formatted filter to apply (applicable if applyFilter is True)",
         "type": "string",
-        "default": ".[]"
+        "default": ".[]",
+        "order": "6",
+        "displayName": "Filter Rule"
     },
-    "formatNumber": {
-        "description": "OMF format property to apply to the type Number",
-        "type": "string",
-        "default": "float64"
+    "OMFRetrySleepTime": {
+        "description": "Seconds between each retry for the communication with the OMF PI Connector Relay",
+        "type": "integer",
+        "default": "1",
+        "order": "9",
+        "displayName": "Sleep Time Retry"
+    },
+    "OMFMaxRetry": {
+        "description": "Max number of retries for the communication with the OMF PI Connector Relay",
+        "type": "integer",
+        "default": "5",
+        "order": "10",
+        "displayName": "Maximum Retry"
+    },
+    "OMFHttpTimeout": {
+        "description": "Timeout in seconds for the HTTP operations with the OMF PI Connector Relay",
+        "type": "integer",
+        "default": "30",
+        "order": "13",
+        "displayName": "HTTP Timeout"
     },
     "formatInteger": {
         "description": "OMF format property to apply to the type Integer",
         "type": "string",
-        "default": "int64"
-    }
+        "default": "int64",
+        "order": "14",
+        "displayName": "Integer Format"
+    },
+    "formatNumber": {
+        "description": "OMF format property to apply to the type Number",
+        "type": "string",
+        "default": "float64",
+        "order": "15",
+        "displayName": "Number Format"
+    },
+    "namespace": {
+        "description": "Specifies the OCS namespace where the information are stored and "
+                       "it is used for the interaction with the OCS API.",
+        "type": "string",
+        "default": "ocs_namespace_0001",
+        "order": "16",
+        "displayName": "Namespace"
+    },
+    "tenant_id": {
+        "description": "Tenant id associated to the specific OCS account.",
+        "type": "string",
+        "default": "ocs_tenant_id",
+        "order": "17",
+        "displayName": "Tenant ID"
+    },
+    "client_id": {
+        "description": "Client id associated to the specific OCS account, "
+                       "it is used to authenticate the source for using the OCS API.",
+        "type": "string",
+        "default": "ocs_client_id",
+        "order": "18",
+        "displayName": "Client ID"
+    },
+    "client_secret": {
+        "description": "Client secret associated to the specific OCS account, "
+                       "it is used to authenticate the source for using the OCS API.",
+        "type": "string",
+        "default": "ocs_client_secret",
+        "order": "19",
+        "displayName": "Client Secret"
+    },
+    "notBlockingErrors": {
+        "description": "These errors are considered not blocking in the communication with the PI Server,"
+                       " the sending operation will proceed with the next block of data if one of these is encountered",
+        "type": "JSON",
+        "default": json.dumps(
+            [
+                {'id': 400, 'message': 'Invalid value type for the property'},
+                {'id': 400, 'message': 'Redefinition of the type with the same ID is not allowed'}
+            ]
+        ),
+        "readonly": "true"
+    },
 }
 
 # Configuration related to the OMF Types
 _CONFIG_CATEGORY_OMF_TYPES_NAME = 'OCS_TYPES'
 _CONFIG_CATEGORY_OMF_TYPES_DESCRIPTION = 'Configuration of OCS types'
 
-_CONFIG_DEFAULT_OMF_TYPES = omf.CONFIG_DEFAULT_OMF_TYPES
+_CONFIG_DEFAULT_OMF_TYPES = pi_server.CONFIG_DEFAULT_OMF_TYPES
 
-_OMF_TEMPLATE_TYPE = omf.OMF_TEMPLATE_TYPE
+_OMF_TEMPLATE_TYPE = pi_server.OMF_TEMPLATE_TYPE
 
 
 def _performance_log(_function):
@@ -302,12 +356,11 @@ def plugin_init(data):
     global _config_omf_types
     global _logger
     global _recreate_omf_objects
-    global _log_debug_level, _log_performance, _stream_id, _destination_id
+    global _log_debug_level, _log_performance, _stream_id
 
     _log_debug_level = data['debug_level']
     _log_performance = data['log_performance']
     _stream_id = data['stream_id']
-    _destination_id = data['destination_id']
 
     try:
         # note : _module_name is used as __name__ refers to the Sending Process
@@ -331,7 +384,17 @@ def plugin_init(data):
 
     # Retrieves the configurations and apply the related conversions
     _config['_CONFIG_CATEGORY_NAME'] = data['_CONFIG_CATEGORY_NAME']
+
+    _config['namespace'] = data['namespace']['value']
+    _config['tenant_id'] = data['tenant_id']['value']
+    _config['client_id'] = data['client_id']['value']
+    _config['client_secret'] = data['client_secret']['value']
     _config['URL'] = data['URL']['value']
+
+    # Replaces placeholders if the URL doesn't already contain the final address
+    _config['URL'] = _config['URL'].replace("TENANT_ID_PLACEHOLDER", _config['tenant_id'])
+    _config['URL'] = _config['URL'].replace("NAMESPACE_ID_PLACEHOLDER", _config['namespace'])
+
     _config['producerToken'] = data['producerToken']['value']
     _config['OMFMaxRetry'] = int(data['OMFMaxRetry']['value'])
     _config['OMFRetrySleepTime'] = int(data['OMFRetrySleepTime']['value'])
@@ -340,6 +403,10 @@ def plugin_init(data):
 
     _config['formatNumber'] = data['formatNumber']['value']
     _config['formatInteger'] = data['formatInteger']['value']
+
+    _config['notBlockingErrors'] = ast.literal_eval(data['notBlockingErrors']['value'])
+
+    _config['compression'] = data['compression']['value']
 
     # TODO: compare instance fetching via inspect vs as param passing
     # import inspect
@@ -399,9 +466,9 @@ async def plugin_send(data, raw_data, stream_id):
     type_id = _config_omf_types['type-id']['value']
 
     # Sets globals for the OMF module
-    omf._logger = _logger
-    omf._log_debug_level = _log_debug_level
-    omf._log_performance = _log_performance
+    pi_server._logger = _logger
+    pi_server._log_debug_level = _log_debug_level
+    pi_server._log_performance = _log_performance
 
     ocs_north = OCSNorthPlugin(data['sending_process_instance'], data, _config_omf_types, _logger)
 
@@ -463,7 +530,7 @@ def plugin_reconfigure():
     pass
 
 
-class OCSNorthPlugin(omf.OmfNorthPlugin):
+class OCSNorthPlugin(pi_server.PIServerNorthPlugin):
     """ North OCS North Plugin """
 
     def __init__(self, sending_process_instance, config, config_omf_types,  _logger):

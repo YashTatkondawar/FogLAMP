@@ -69,7 +69,7 @@ class TestScheduledProcesses:
 
     async def test_get_scheduled_process(self, client):
         storage_client_mock = MagicMock(StorageClientAsync)
-        payload = '{"return": ["name"], "where": {"column": "name", "condition": "=", "value": "purge"}}'
+        payload = '{"return": ["name"], "where": {"column": "name", "condition": "in", "value": ["purge"]}}'
         response = {'rows': [{'name': 'purge'}], 'count': 1}
         with patch.object(connect, 'get_storage_async', return_value=storage_client_mock):
                 with patch.object(storage_client_mock, 'query_tbl_with_payload',
@@ -89,7 +89,7 @@ class TestScheduledProcesses:
                                   return_value=mock_coro_response(response)):
                     resp = await client.get('/foglamp/schedule/process/bla')
                     assert 404 == resp.status
-                    assert 'No such Scheduled Process: bla.' == resp.reason
+                    assert "No such Scheduled Process: ['bla']." == resp.reason
 
 
 class TestSchedules:
@@ -163,7 +163,7 @@ class TestSchedules:
 
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (ScheduleNotFoundError(_random_uuid), 404, 'Schedule not found: {}'.format(_random_uuid)),
-        (ValueError, 404, None),
+        (ValueError, 404, ''),
     ])
     async def test_get_schedule_exceptions(self, client, exception_name, response_code, response_message):
         with patch.object(server.Server.scheduler, 'get_schedule', side_effect=exception_name):
@@ -190,7 +190,7 @@ class TestSchedules:
 
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (ScheduleNotFoundError(_random_uuid), 404, 'Schedule not found: {}'.format(_random_uuid)),
-        (ValueError, 404, None),
+        (ValueError, 404, ''),
     ])
     async def test_enable_schedule_exceptions(self, client, exception_name, response_code, response_message):
         with patch.object(server.Server.scheduler, 'enable_schedule', side_effect=exception_name):
@@ -217,7 +217,7 @@ class TestSchedules:
 
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (ScheduleNotFoundError(_random_uuid), 404, 'Schedule not found: {}'.format(_random_uuid)),
-        (ValueError, 404, None),
+        (ValueError, 404, ''),
     ])
     async def test_disable_schedule_exceptions(self, client, exception_name, response_code, response_message):
         with patch.object(server.Server.scheduler, 'disable_schedule', side_effect=exception_name):
@@ -254,8 +254,8 @@ class TestSchedules:
 
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (ScheduleNotFoundError(_random_uuid), 404, 'Schedule not found: {}'.format(_random_uuid)),
-        (NotReadyError(), 404, None),
-        (ValueError, 404, None),
+        (NotReadyError(), 404, ''),
+        (ValueError, 404, ''),
     ])
     async def test_start_schedule_exceptions(self, client, exception_name, response_code, response_message):
         with patch.object(server.Server.scheduler, 'get_schedule', side_effect=exception_name):
@@ -485,8 +485,8 @@ class TestSchedules:
 
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (ScheduleNotFoundError(_random_uuid), 404, 'Schedule not found: {}'.format(_random_uuid)),
-        (NotReadyError(), 404, None),
-        (ValueError, 404, None),
+        (NotReadyError(), 404, ''),
+        (ValueError, 404, ''),
         (RuntimeWarning, 409, "Enabled Schedule {} cannot be deleted.".format(str(_random_uuid))),
     ])
     async def test_delete_schedule_exceptions(self, client, exception_name, response_code, response_message):
@@ -528,6 +528,7 @@ class TestTasks:
             task.task_id = self._random_uuid
             task.state = Task.State.RUNNING
             task.start_time = None
+            task.schedule_name = "bar"
             task.process_name = "bar"
             task.end_time = None
             task.exit_code = 0
@@ -545,7 +546,7 @@ class TestTasks:
                     json_response = json.loads(result)
                     assert {'startTime': 'None', 'reason': None,
                             'endTime': 'None', 'state': 'Running',
-                            'name': 'bar', 'exitCode': 0,
+                            'name': 'bar', 'processName': 'bar', 'exitCode': 0,
                             'id': '{}'.format(self._random_uuid)} == json_response
 
     async def test_get_task_bad_data(self, client):
@@ -555,7 +556,7 @@ class TestTasks:
 
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (TaskNotFoundError(_random_uuid), 404, 'Task not found: {}'.format(_random_uuid)),
-        (ValueError, 404, None),
+        (ValueError, 404, ''),
     ])
     async def test_get_task_exceptions(self, client, exception_name, response_code, response_message):
         with patch.object(server.Server.scheduler, 'get_task', side_effect=exception_name):
@@ -577,6 +578,7 @@ class TestTasks:
             task.task_id = self._random_uuid
             task.state = Task.State.RUNNING
             task.start_time = None
+            task.schedule_name = "bla"
             task.process_name = "bla"
             task.end_time = None
             task.exit_code = 0
@@ -595,7 +597,7 @@ class TestTasks:
                     json_response = json.loads(result)
                     assert {'tasks': [{'state': 'Running', 'id': '{}'.format(self._random_uuid),
                                        'endTime': 'None', 'exitCode': 0,
-                                       'startTime': 'None', 'reason': None, 'name': 'bla'}]} == json_response
+                                       'startTime': 'None', 'reason': None, 'name': 'bla', 'processName': 'bla'}]} == json_response
 
     @pytest.mark.parametrize("request_params, response_code, response_message", [
         ('?limit=invalid', 400, "Limit must be a positive integer"),
@@ -626,14 +628,14 @@ class TestTasks:
         storage_client_mock = MagicMock(StorageClientAsync)
         response = {'count': 2, 'rows': [
             {'pid': '1', 'reason': '', 'exit_code': '0', 'id': '1',
-             'process_name': 'bla', 'end_time': '2018', 'start_time': '2018', 'state': '2'}]}
+             'process_name': 'bla', 'schedule_name': 'bla', 'end_time': '2018', 'start_time': '2018', 'state': '2'}]}
         with patch.object(connect, 'get_storage_async', return_value=storage_client_mock):
             with patch.object(storage_client_mock, 'query_tbl_with_payload', return_value=mock_coro_response(response)):
                 resp = await client.get('/foglamp/task/latest{}'.format(request_params))
                 assert 200 == resp.status
                 result = await resp.text()
                 json_response = json.loads(result)
-                assert {'tasks': [{'reason': '', 'name': 'bla',
+                assert {'tasks': [{'reason': '', 'name': 'bla', 'processName': 'bla',
                                    'state': 'Complete', 'exitCode': '0', 'endTime': '2018',
                                    'pid': '1', 'startTime': '2018', 'id': '1'}]} == json_response
 
@@ -668,7 +670,7 @@ class TestTasks:
     @pytest.mark.parametrize("exception_name, response_code, response_message", [
         (TaskNotFoundError(_random_uuid), 404, 'Task not found: {}'.format(_random_uuid)),
         (TaskNotRunningError(_random_uuid), 404, 'Task is not running: {}'.format(_random_uuid)),
-        (ValueError, 404, None),
+        (ValueError, 404, ''),
     ])
     async def test_cancel_task_exceptions(self, client, exception_name, response_code, response_message):
         async def mock_coro():
