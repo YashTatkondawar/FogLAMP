@@ -20,7 +20,6 @@
 ## Author: Ashish Jabble, Massimiliano Pinto, Vaibhav Singhal
 ##
 
-
 set -e
 
 foglamp_location=`pwd`
