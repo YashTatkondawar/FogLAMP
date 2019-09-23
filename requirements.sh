@@ -17,7 +17,6 @@
 ##
 ## Author: Ashish Jabble
 ##
-
 set -e
 foglamp_location=`pwd`
 os_name=`(grep -o '^NAME=.*' /etc/os-release | cut -f2 -d\" | sed 's/"//g')`
