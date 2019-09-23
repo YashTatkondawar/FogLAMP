@@ -96,7 +96,7 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 	set -e
 
 elif apt --version 2>/dev/null; then
-	apt install -y git avahi-daemon curl
+	apt install -y git jq avahi-daemon curl
 	apt install -y cmake g++ make build-essential autoconf automake uuid-dev
 	apt install -y libtool libboost-dev libboost-system-dev libboost-thread-dev libpq-dev libssl-dev libz-dev
 	apt install -y python-dev python3-dev python3-pip
