@@ -17,7 +17,7 @@
 ##--------------------------------------------------------------------
 
 ##
-## Author: Ashish Jabble, Massimiliano Pinto, Vaibhav Singhal
+## Author: Ashish Jabble
 ##
 
 set -e
