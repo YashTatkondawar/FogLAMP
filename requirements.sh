@@ -202,7 +202,7 @@ elif apt --version 2>/dev/null; then
 	DEBIAN_FRONTEND=noninteractive apt install -yq libcurl4-openssl-dev
 
 	apt install -y cpulimit
-	# sudo apt install -y postgresql
+	# apt install -y postgresql
 else
 	echo "Requirements cannot be automatically installed, please refer README.rst to install requirements manually"
 fi
