@@ -195,8 +195,6 @@ const char *PLUGIN_DEFAULT_CONFIG_INFO = QUOTE(
 	}
 );
 
-
-
 // "default": "{\"pipeline\": [\"DeltaFilter\"]}"
 
 /**
@@ -386,6 +384,7 @@ PLUGIN_HANDLE plugin_init(ConfigCategory* configData)
 		Logger::getLogger()->debug("PI-Server end point selected - Connector Relay");
 	else
 		Logger::getLogger()->error("Invalid PI-Server end point");
+
 
 	// Use compression ?
 	string compr = configData->getValue("compression");

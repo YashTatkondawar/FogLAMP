@@ -46,6 +46,7 @@ public:
 	void		ingest(const Reading& reading);
 	void		ingest(const std::vector<Reading *> *vec);
 	bool		running();
+    	bool		isStopping();
 	void		processQueue();
 	void		waitForQueue();
 	size_t		queueLength() { return m_queue->size(); };
@@ -66,6 +67,7 @@ public:
 private:
 	StorageClient&			m_storage;
 	unsigned long			m_timeout;
+	bool				m_shutdown;
 	unsigned int			m_queueSizeThreshold;
 	bool				m_running;
 	std::string 			m_serviceName;
@@ -75,6 +77,7 @@ private:
 	std::vector<Reading *>*		m_queue;
 	std::mutex			m_qMutex;
 	std::mutex			m_statsMutex;
+	std::mutex			m_pipelineMutex;
 	std::thread*			m_thread;
 	std::thread*			m_statsThread;
 	Logger*				m_logger;
@@ -83,7 +86,7 @@ private:
 	// Data ready to be filtered/sent
 	std::vector<Reading *>*		m_data;
 	unsigned int			m_discardedReadings; // discarded readings since last update to statistics table
-	FilterPipeline*			filterPipeline;
+	FilterPipeline*			m_filterPipeline;
 	
 	std::unordered_set<std::string>   		statsDbEntriesCache;  // confirmed stats table entries
 	std::map<std::string, int>		statsPendingEntries;  // pending stats table entries

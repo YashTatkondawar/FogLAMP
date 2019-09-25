@@ -20,6 +20,7 @@
 ## Author: Ashish Jabble, Massimiliano Pinto, Vaibhav Singhal
 ##
 
+
 set -e
 
 # Upgrades curl to the version related to FogLAMP
@@ -109,7 +110,6 @@ os_version=`(grep -o '^VERSION_ID=.*' /etc/os-release | cut -f2 -d\" | sed 's/"/
 echo "Platform is ${os_name}, Version: ${os_version}"
 
 if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *"7"* ]]; then
-
 	if [[ $os_name == *"Red Hat"* ]]; then
 		yum-config-manager --enable 'Red Hat Enterprise Linux Server 7 RHSCL (RPMs)'
 		yum install -y @development
@@ -117,7 +117,6 @@ if [[ ( $os_name == *"Red Hat"* || $os_name == *"CentOS"* ) &&  $os_version == *
 		yum groupinstall "Development tools" -y
 		yum install -y centos-release-scl
 	fi
-
 	yum install -y boost-devel
 	yum install -y glib2-devel
 	yum install -y rsyslog
@@ -202,6 +201,7 @@ elif apt --version 2>/dev/null; then
 	DEBIAN_FRONTEND=noninteractive apt install -yq krb5-user
 	DEBIAN_FRONTEND=noninteractive apt install -yq libcurl4-openssl-dev
 
+	apt install -y cpulimit
 	# sudo apt install -y postgresql
 else
 	echo "Requirements cannot be automatically installed, please refer README.rst to install requirements manually"
