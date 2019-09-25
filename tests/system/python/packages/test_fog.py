@@ -305,7 +305,7 @@ class TestClass:
         
         print ("======================= RANDOMWALK SETUP COMPLETE =======================")
         
-    def test_randomwalk_south_filter(self,foglamp_url):
+    def test_randomwalk2_south_filter(self,foglamp_url):
         
         print ("Add Randomwalk south service again ...")
          
@@ -369,16 +369,68 @@ class TestClass:
             
         print ("---- randomwalk and ema_long data seen in randomwalk1 graph ----")
         
-        print("upload trendc script with modified content...") 
+        print("upload trendc script with modified content...")
         
-        # DELETE Randomwalk South
-        conn = http.client.HTTPConnection(foglamp_url) 
-        conn.request("DELETE", '/foglamp/service/Random')
-        res = conn.getresponse()
-        print (res.status,res.reason)
-        assert 200 == res.status,"ERROR! Failed to delete randomwalk service"        
+        copy_file = "cp scripts/trendc.py scripts/trendc.py.bak"
+        edit_file = "sed -i \"s/reading\[b'ema_long/reading\[b'ema_longX/g\" scripts/trendc.py"
+        exit_code = os.system(copy_file)
+        assert exit_code == 0
+        exit_code = os.system(edit_file)
+        assert exit_code == 0
         
-        print ("======================= RANDOMWALK SETUP COMPLETE =======================")
+        url = foglamp_url + '/foglamp/category/Random1_PF/script/upload'
+        script_path = 'script=@scripts/trendc.py'
+        upload_script = "curl -sX POST '{}' -F '{}'".format(url,script_path)
+        exit_code = os.system(upload_script)
+        assert exit_code == 0
+        
+        for LOOP in range(MAX_RETRIES):
+            con=http.client.HTTPConnection(foglamp_url)
+            con.request("GET", "/foglamp/asset/randomwalk1?seconds=600")
+            resp=con.getresponse()
+            strdata=resp.read().decode()
+            data=json.loads(strdata)
+            #print (data[0])            
+            if "randomwalk" in data[0]["reading"] and "ema_longX" in data[0]["reading"]:              
+              assert data[0]["reading"]["randomwalk"] != ""
+              assert data[0]["reading"]["ema_longX"] != ""
+            elif LOOP < MAX_RETRIES :
+              continue
+            else :
+              assert data[0]["reading"]["randomwalk"] != "","TIMEOUT! randomwalk1 and ema_longX data not seen in randomwalk graph."+ foglamp_url + "/asset/randomwalk1?seconds=600"  
+              assert data[0]["reading"]["ema_longX"] != "","TIMEOUT! randomwalk1 and ema_longX data not seen in randomwalk graph."+ foglamp_url + "/asset/randomwalk1?seconds=600" 
+            
+        print ("---- randomwalk and ema_longX data seen in randomwalk1 graph ----")
+        
+        move_file = "mv scripts/trendc.py.bak scripts/trendc.py"        
+        exit_code = os.system(move_file)
+        assert exit_code == 0
+        
+        url = foglamp_url + '/foglamp/category/Random1_PF/script/upload'
+        script_path = 'script=@scripts/ema.py'
+        upload_script = "curl -sX POST '{}' -F '{}'".format(url,script_path)
+        exit_code = os.system(upload_script)
+        assert exit_code == 0  
+        
+        for LOOP in range(MAX_RETRIES):
+            con=http.client.HTTPConnection(foglamp_url)
+            con.request("GET", "/foglamp/asset/randomwalk1?seconds=600")
+            resp=con.getresponse()
+            strdata=resp.read().decode()
+            data=json.loads(strdata)
+            #print (data[0])            
+            if "randomwalk" in data[0]["reading"] and "ema" in data[0]["reading"]:              
+              assert data[0]["reading"]["randomwalk"] != ""
+              assert data[0]["reading"]["ema"] != ""
+            elif LOOP < MAX_RETRIES :
+              continue
+            else :
+              assert data[0]["reading"]["randomwalk"] != "","TIMEOUT! randomwalk and ema data not seen in randomwalk1 graph."+ foglamp_url + "/asset/randomwalk1?seconds=600"  
+              assert data[0]["reading"]["ema"] != "","TIMEOUT! randomwalk and ema data not seen in randomwalk graph."+ foglamp_url + "/asset/randomwalk1?seconds=600" 
+            
+        print ("---- randomwalk and ema data seen in randomwalk graph ----")  
+        
+        print ("======================= RANDOMWALK SETUP 2 COMPLETE =======================")
     
     def teardown_method(self,method):
         print ("\n********Tearing down********")
