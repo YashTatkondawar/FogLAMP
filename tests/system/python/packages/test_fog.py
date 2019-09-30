@@ -23,7 +23,7 @@ import time
 
 def setup_module(module):
     try:
-        subprocess.run(["$FOGLAMP_ROOT/tests/system/lab/install {}".format(package_build_version)], shell=True, check=True)
+        subprocess.run(["./install"], shell=True, check=True)
     except subprocess.CalledProcessError:
         assert False, "install package script failed"
     
@@ -569,6 +569,6 @@ class TestToggledEvent:
 def teardown_module(module):
     print ("\n********Tearing down********")
     try:
-        subprocess.run(["$FOGLAMP_ROOT/tests/system/lab/remove"], shell=True, check=True)
+        subprocess.run(["./remove"], shell=True, check=True)
     except subprocess.CalledProcessError:
         assert False, "remove package script failed"
