@@ -1,3 +1,17 @@
+
+# FOGLAMP_BEGIN
+# See: http://foglamp.readthedocs.io/
+# FOGLAMP_END
+
+""" System tests that installs the set of foglamp packages for the current platform.
+    It then performs various tests on the various plugins.
+"""
+
+__author__ = "Yash Tatkondawar"
+__copyright__ = "Copyright (c) 2019 Dianomic Systems Inc."
+__license__ = "Apache 2.0"
+__version__ = "${VERSION}"
+
 import subprocess
 import http.client
 import json
@@ -7,14 +21,12 @@ import os
 import sys
 import time
 
-VERIFY_ENVIRO_PHAT=0
-
 def setup_module(module):
-    print ("*******Setting up***************\n")
-    if os.path.exists("error.txt"):
-        os.remove("error.txt")
-    open("error.txt","w+")
-    #subprocess.call(['./run'])
+    try:
+        subprocess.run(["$FOGLAMP_ROOT/tests/system/lab/install {}".format(package_build_version)], shell=True, check=True)
+    except subprocess.CalledProcessError:
+        assert False, "install package script failed"
+    
     
 def make_post_connection(foglamp_url,post_url,data):
     conn = http.client.HTTPConnection(foglamp_url)
@@ -556,4 +568,7 @@ class TestToggledEvent:
     
 def teardown_module(module):
     print ("\n********Tearing down********")
-    #subprocess.call(['./remove'])
+    try:
+        subprocess.run(["$FOGLAMP_ROOT/tests/system/lab/remove"], shell=True, check=True)
+    except subprocess.CalledProcessError:
+        assert False, "remove package script failed"
